@@ -6,7 +6,7 @@ import { doc, runTransaction, getDoc } from "firebase/firestore";
 import { sendWelcomeEmail } from "@/lib/email";
 import { getCourseById } from "@/lib/db";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_placeholder", {
     apiVersion: "2025-12-15.clover" as any, // Casting to any/ignoring to bypass strict check if needed, or just using the string.
 });
 
