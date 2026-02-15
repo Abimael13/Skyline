@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import Stripe from "stripe";
 import { db } from "@/lib/firebase";
-import { doc, runTransaction, getDoc } from "firebase/firestore";
+import { doc, runTransaction, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
 import { sendWelcomeEmail } from "@/lib/email";
 import { getCourseById } from "@/lib/db";
 
@@ -66,6 +66,13 @@ export async function POST(req: Request) {
                         transaction.update(sessionRef, { enrolledCount: current + (parseInt(seats || "1")) });
                     });
                 }
+
+                // Update User Profile with Enrollment
+                const userRef = doc(db, "users", userId);
+                await updateDoc(userRef, {
+                    enrolledCourses: arrayUnion(courseId),
+                    enrolledSessions: sessionId ? arrayUnion(sessionId) : undefined
+                });
 
                 // 3. Send Email
                 if (userEmail) {

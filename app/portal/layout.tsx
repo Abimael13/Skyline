@@ -4,6 +4,7 @@ import { PortalSidebar } from "@/components/layout/PortalSidebar";
 import { useAuth } from "@/lib/AuthContext";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Menu } from "lucide-react";
 
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
     const { user, loading } = useAuth();
@@ -12,6 +13,7 @@ function ProtectedLayout({ children }: { children: React.ReactNode }) {
     const isExamPage = pathname === "/portal/exam";
 
     const [isMobile, setIsMobile] = useState(false);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
     useEffect(() => {
         if (!loading && !user) {
@@ -45,12 +47,20 @@ function ProtectedLayout({ children }: { children: React.ReactNode }) {
                 </div>
             )}
 
-            {!isExamPage && <PortalSidebar />}
+            {!isExamPage && <PortalSidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />}
 
-            <div className={`${isExamPage ? "w-full" : "lg:ml-64"} min-h-screen`}>
+            <div className={`${isExamPage ? "w-full" : "lg:ml-64"} min-h-screen transition-all duration-300`}>
                 {!isExamPage && (
-                    <header className="h-16 border-b border-white/5 bg-navy-950/50 backdrop-blur-sm px-8 flex items-center justify-between sticky top-0 z-30">
-                        <h2 className="text-white font-medium">Dashboard</h2>
+                    <header className="h-16 border-b border-white/5 bg-navy-950/50 backdrop-blur-sm px-4 lg:px-8 flex items-center justify-between sticky top-0 z-30">
+                        <div className="flex items-center">
+                            <button
+                                onClick={() => setIsSidebarOpen(true)}
+                                className="lg:hidden mr-4 text-slate-400 hover:text-white transition-colors"
+                            >
+                                <Menu size={24} />
+                            </button>
+                            <h2 className="text-white font-medium">Dashboard</h2>
+                        </div>
                         {/* Add User Profile dropdown here later */}
                         <div className="h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white">
                             {user.email?.[0].toUpperCase()}

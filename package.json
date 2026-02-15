@@ -11,6 +11,8 @@
   "dependencies": {
     "@livekit/components-react": "^2.9.19",
     "@livekit/components-styles": "^1.2.0",
+    "@stripe/react-stripe-js": "^5.6.0",
+    "@stripe/stripe-js": "^8.7.0",
     "@tailwindcss/typography": "^0.5.19",
     "@types/nodemailer": "^7.0.5",
     "clsx": "^2.1.1",

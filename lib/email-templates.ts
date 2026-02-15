@@ -217,3 +217,62 @@ export const generateVerificationEmailHtml = (code: string) => `
 </body>
 </html>
 `;
+
+export interface ContactEmailProps {
+    name: string;
+    email: string;
+    phone: string;
+    subject: string;
+    message: string;
+}
+
+export const generateContactEmailHtml = ({ name, email, phone, subject, message }: ContactEmailProps) => `
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .header { border-bottom: 2px solid #f1f5f9; padding-bottom: 20px; margin-bottom: 20px; }
+        .h2 { color: #0f172a; margin: 0; font-size: 24px; }
+        .meta { margin-bottom: 20px; color: #64748b; font-size: 14px; }
+        .field { margin-bottom: 15px; }
+        .label { font-weight: bold; color: #334155; font-size: 12px; text-transform: uppercase; margin-bottom: 4px; display: block; }
+        .value { color: #0f172a; font-size: 16px; line-height: 1.5; }
+        .message-box { background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; margin-top: 10px; }
+        .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2 class="h2">New Contact Form Submission</h2>
+        </div>
+        
+        <div class="field">
+            <span class="label">From</span>
+            <div class="value">\${name} &lt;\${email}&gt;</div>
+        </div>
+
+        <div class="field">
+            <span class="label">Phone</span>
+            <div class="value">\${phone || 'Not provided'}</div>
+        </div>
+
+        <div class="field">
+            <span class="label">Subject</span>
+            <div class="value">\${subject}</div>
+        </div>
+
+        <div class="field">
+            <span class="label">Message</span>
+            <div class="message-box value">\${message.replace(/\\n/g, '<br>')}</div>
+        </div>
+
+        <div class="footer">
+            Sent from Skyline Safety Services Website
+        </div>
+    </div>
+</body>
+</html>
+`;

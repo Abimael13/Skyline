@@ -1,5 +1,5 @@
 import nodemailer from "nodemailer";
-import { generateWelcomeEmailHtml, generateExamPassEmailHtml, generateExamFailEmailHtml, generateVerificationEmailHtml } from "./email-templates";
+import { generateWelcomeEmailHtml, generateExamPassEmailHtml, generateExamFailEmailHtml, generateVerificationEmailHtml, generateContactEmailHtml } from "./email-templates";
 
 // Simple in-memory transporter (reusing the one from contact form if possible, or new one)
 // For production, these should be env vars
@@ -110,6 +110,33 @@ export async function sendVerificationEmail(email: string, code: string) {
         return true;
     } catch (error) {
         console.error("Error sending verification email:", error);
+        return false;
+    }
+}
+
+interface ContactEmailProps {
+    name: string;
+    email: string;
+    phone: string;
+    subject: string;
+    message: string;
+}
+
+export async function sendContactEmail({ name, email, phone, subject, message }: ContactEmailProps) {
+    const htmlContent = generateContactEmailHtml({ name, email, phone, subject, message });
+
+    try {
+        await transporter.sendMail({
+            from: `"Skyline Website Contact" <${process.env.EMAIL_USER}>`,
+            to: process.env.EMAIL_USER,
+            replyTo: email,
+            subject: `New Contact Form Submission: ${subject}`,
+            html: htmlContent,
+        });
+        console.log(`Contact form email sent from ${email}`);
+        return true;
+    } catch (error) {
+        console.error("Error sending contact email:", error);
         return false;
     }
 }
