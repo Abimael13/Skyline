@@ -133,36 +133,7 @@ export default function CourseBookingPage({ params }: { params: Promise<{ course
 
 
 
-    const handlePaymentSuccess = async () => {
-        try {
-            // Confirm registration with backend
-            const res = await fetch("/api/register", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    sessionId: selectedSessionId,
-                    seatsRequested
-                })
-            });
 
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error);
-
-            // Store pending enrollment
-            sessionStorage.setItem("pendingEnrollment", JSON.stringify({
-                courseId: course.id,
-                sessionId: selectedSessionId,
-                seats: seatsRequested,
-                paid: true
-            }));
-
-            router.push("/signup");
-        } catch (e: any) {
-            console.error("Enrollment error:", e);
-            setError(e.message || "Registration failed. Please try again.");
-            setShowPayment(false);
-        }
-    };
 
     return (
         <div className="min-h-screen bg-navy-950 text-white selection:bg-blue-500/30">
@@ -171,7 +142,6 @@ export default function CourseBookingPage({ params }: { params: Promise<{ course
             <PaymentModal
                 isOpen={showPayment}
                 onClose={() => setShowPayment(false)}
-                onConfirm={handlePaymentSuccess}
                 courseTitle={course.title}
                 courseId={course.id}
                 price={course.price * seatsRequested}
