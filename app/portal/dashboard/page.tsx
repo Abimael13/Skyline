@@ -4,18 +4,47 @@ import { useAuth } from "@/lib/AuthContext";
 import { ProgressCard } from "@/components/dashboard/ProgressCards";
 import { CourseModuleList } from "@/components/dashboard/CourseModuleList";
 import { Clock, Trophy, BookOpen, CheckCircle } from "lucide-react";
-import { COURSES } from "@/lib/courses";
+import { Course } from "@/lib/courses";
+import { getCourseById } from "@/lib/db";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
+import { useEffect, useState } from "react";
 
 export default function Dashboard() {
-    const { user, enrolledCourses, examResults, loading } = useAuth();
+    const { user, enrolledCourses, examResults, loading: authLoading } = useAuth();
     const userName = user?.displayName || user?.email?.split("@")[0] || "Candidate";
 
-    // Get full course details for enrolled courses
-    const myCourses = COURSES.filter(course => enrolledCourses.includes(course.id));
+    const [myCourses, setMyCourses] = useState<Course[]>([]);
+    const [loadingCourses, setLoadingCourses] = useState(true);
 
-    if (loading) {
+    useEffect(() => {
+        const fetchCourses = async () => {
+            if (authLoading) return;
+
+            const fetched: Course[] = [];
+
+            // Demo Logic: If user is "Andy.herrera3190", auto-show F-89
+            // This mirrors the logic in My Courses page for consistency
+            const coursesToFetch = new Set(enrolledCourses);
+            const isDemoUser = user?.email?.toLowerCase().includes("andy.herrera");
+            if (isDemoUser) {
+                coursesToFetch.add("f89-flsd");
+            }
+
+            for (const id of Array.from(coursesToFetch)) {
+                const course = await getCourseById(id);
+                if (course) {
+                    fetched.push(course);
+                }
+            }
+            setMyCourses(fetched);
+            setLoadingCourses(false);
+        };
+
+        fetchCourses();
+    }, [enrolledCourses, authLoading, user]);
+
+    if (authLoading || loadingCourses) {
         return <div className="text-white">Loading dashboard...</div>;
     }
 
@@ -48,7 +77,7 @@ export default function Dashboard() {
                     <p className="text-slate-400 max-w-md mx-auto mb-8">
                         Browse our catalog to find the right training for your FDNY certification needs.
                     </p>
-                    <Link href="/courses">
+                    <Link href="/portal/catalog">
                         <Button>Browse Courses</Button>
                     </Link>
                 </div>

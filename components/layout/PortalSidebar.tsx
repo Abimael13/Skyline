@@ -39,7 +39,7 @@ export function PortalSidebar({ isOpen = false, onClose }: PortalSidebarProps) {
             {/* Sidebar */}
             <aside
                 className={clsx(
-                    "fixed top-0 left-0 h-screen w-64 bg-navy-950 border-r border-white/5 flex flex-col z-50 transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static",
+                    "fixed top-0 left-0 h-screen w-64 bg-navy-950 border-r border-white/5 flex flex-col z-50 transition-transform duration-300 ease-in-out lg:translate-x-0",
                     isOpen ? "translate-x-0" : "-translate-x-full"
                 )}
             >

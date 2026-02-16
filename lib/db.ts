@@ -76,7 +76,7 @@ export async function getAllCourses(): Promise<Course[]> {
 
         return courses;
     } catch (error) {
-        console.error("Error fetching courses:", error);
+        console.warn("Error fetching courses:", error);
         return COURSES; // Fallback
     }
 }
@@ -93,7 +93,7 @@ export async function getCourseById(courseId: string): Promise<Course | undefine
             return COURSES.find(c => c.id === courseId);
         }
     } catch (error) {
-        console.error("Error fetching course:", error);
+        console.warn("Error fetching course:", error);
         return COURSES.find(c => c.id === courseId);
     }
 }

@@ -86,7 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         // For now, assume SignupPage or Login logic handles creation.
                     }
                 }, (error: any) => {
-                    console.error("Auth Snapshot Error:", error);
+                    console.warn("Auth Snapshot Error (Offline?):", error);
                     setLoading(false);
                 });
 

@@ -1,29 +1,64 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { CourseModuleList } from "@/components/dashboard/CourseModuleList";
 import { BookOpen, ShoppingBag } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
-import { COURSES } from "@/lib/courses";
+import { Course } from "@/lib/courses";
+import { getCourseById } from "@/lib/db";
 import { LiveClassButton } from "@/components/dashboard/LiveClassButton";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 export default function MyCoursesPage() {
-    const { enrolledCourses, enrollInCourse, loading, user } = useAuth();
+    const { enrolledCourses, loading: authLoading, user } = useAuth();
     const searchParams = useSearchParams();
     const expandId = searchParams.get('expand');
 
-    // Filter courses the user owns (or force show for demo info)
-    // ALSO: If user is "Andy.herrera3190", auto-show F-89 to match dashboard hardcoding
-    const isDemoUser = user?.email?.includes("andy.herrera");
-    const myCourses = COURSES.filter(course =>
-        enrolledCourses.includes(course.id) || (isDemoUser && course.id === "f89-flsd")
-    );
+    const [myCourses, setMyCourses] = useState<Course[]>([]);
+    const [loadingCourses, setLoadingCourses] = useState(true);
 
-    if (loading) {
+    useEffect(() => {
+        const fetchCourses = async () => {
+            if (authLoading) return;
+
+            // 1. Identify which courses to fetch
+            const courseIdsToFetch = new Set<string>(enrolledCourses);
+
+            // Demo Logic: If user is "Andy.herrera3190", auto-show F-89
+            const isDemoUser = user?.email?.toLowerCase().includes("andy.herrera");
+            if (isDemoUser) {
+                courseIdsToFetch.add("f89-flsd");
+            }
+
+            if (courseIdsToFetch.size === 0) {
+                setMyCourses([]);
+                setLoadingCourses(false);
+                return;
+            }
+
+            // 2. Fetch specific courses from DB
+            const fetchedCourses: Course[] = [];
+            for (const id of Array.from(courseIdsToFetch)) {
+                const course = await getCourseById(id);
+                if (course) {
+                    fetchedCourses.push(course);
+                }
+            }
+
+            setMyCourses(fetchedCourses);
+            setLoadingCourses(false);
+        };
+
+        fetchCourses();
+    }, [enrolledCourses, authLoading, user]);
+
+
+    if (authLoading || loadingCourses) {
         return (
             <div className="space-y-8 animate-pulse">
                 <div>
@@ -71,7 +106,7 @@ export default function MyCoursesPage() {
                                     </div>
                                     <div>
                                         <h2 className="text-xl font-bold text-white">{course.title}</h2>
-                                        <p className="text-sm text-slate-400">31-Hour Initial Course</p>
+                                        <p className="text-sm text-slate-400">{course.duration}</p>
                                     </div>
                                 </div>
 
@@ -91,7 +126,7 @@ export default function MyCoursesPage() {
                                 </div>
                             </div>
 
-                            {/* Reuse basic module list for demo */}
+                            {/* Ensure modules exist before rendering list */}
                             <CourseModuleList
                                 collapsible
                                 defaultOpen={expandId === course.id}
@@ -106,9 +141,7 @@ export default function MyCoursesPage() {
     );
 }
 
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import { useEffect } from "react";
+
 
 function LiveSessionStatus({ courseId, zoomLink }: { courseId: string, zoomLink: string }) {
     const { enrolledSessions } = useAuth();
