@@ -175,7 +175,9 @@ export default function Dashboard() {
                                         <p className="text-slate-400 text-sm mb-4">{course.description}</p>
 
                                         <div className="flex flex-wrap gap-3 items-center">
-                                            <Button size="sm" variant="outline">View Course Content</Button>
+                                            <Link href={`/portal/courses?expand=${course.id}`}>
+                                                <Button size="sm" variant="outline">View Course Content</Button>
+                                            </Link>
 
                                             {/* Exam Result Actions */}
                                             {result?.status === 'passed' && result.diplomaUrl && (
