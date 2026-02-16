@@ -59,7 +59,7 @@ export function CourseModuleList({ collapsible = false, modules, courseId, defau
                                 const isCompleted = completedIds.some(id => String(id) === String(module.id));
                                 const previousCompleted = index === 0 || completedIds.some(id => String(id) === String(modules[index - 1].id));
                                 const isCurrent = !isCompleted && previousCompleted;
-                                const isLocked = !isCompleted && !isCurrent && module.status !== 'unlocked'; // Default strict locking
+                                const isLocked = (!isCompleted && !isCurrent) && module.status !== 'current';
 
                                 const Content = (
                                     <div
