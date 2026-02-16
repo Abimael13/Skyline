@@ -5,9 +5,11 @@ import {
     doc,
     updateDoc,
     setDoc,
-    getDoc
+    getDoc,
+    arrayUnion
 } from "firebase/firestore";
 import { COURSES, Course } from "@/lib/courses";
+import { User } from "firebase/auth";
 
 // Collection References
 const COURSES_COLLECTION = "courses";
@@ -212,6 +214,34 @@ export async function seedServices(services: Service[]) {
         return true;
     } catch (error) {
         console.error("Error seeding services:", error);
+        return false;
+    }
+}
+
+// ------------------------------------------------------------------
+// PROGRESS TRACKING
+// ------------------------------------------------------------------
+export async function markModuleCompleted(userId: string, courseId: string, moduleId: string | number) {
+    try {
+        const userRef = doc(db, "users", userId);
+        const progressPath = `courseProgress.${courseId}.completedModules`;
+
+        // Use updateDoc for arrayUnion to work correctly on existing paths
+        // We assume the user document exists.
+        // If courseProgress map doesn't exist, updateDoc might fail with some SDKs, but dot notation usually handles "intermediate" map creation if the doc exists.
+        // SAFE BET: Use setDoc with merge for the deep structure.
+
+        await setDoc(userRef, {
+            courseProgress: {
+                [courseId]: {
+                    completedModules: arrayUnion(moduleId)
+                }
+            }
+        }, { merge: true });
+
+        return true;
+    } catch (error) {
+        console.error("Error marking module complete:", error);
         return false;
     }
 }

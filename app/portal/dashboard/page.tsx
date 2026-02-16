@@ -11,11 +11,20 @@ import { Button } from "@/components/ui/Button";
 import { useEffect, useState } from "react";
 
 export default function Dashboard() {
-    const { user, enrolledCourses, examResults, loading: authLoading } = useAuth();
+    const { user, enrolledCourses, courseProgress, examResults, loading: authLoading } = useAuth();
     const userName = user?.displayName || user?.email?.split("@")[0] || "Candidate";
 
     const [myCourses, setMyCourses] = useState<Course[]>([]);
     const [loadingCourses, setLoadingCourses] = useState(true);
+
+    // Calculate Stats
+    const totalModulesPassed = Object.values(courseProgress).reduce((acc, curr) => acc + (curr.completedModules?.length || 0), 0);
+
+    // Calculate Active Course Progress
+    const activeCourse = myCourses[0];
+    const activeProgress = activeCourse ? (courseProgress[activeCourse.id]?.completedModules || []) : [];
+    const totalModules = activeCourse ? activeCourse.modules.reduce((acc, m) => acc + (m.subModules?.length || 0), 0) : 0;
+    const progressPercent = totalModules > 0 ? Math.round((activeProgress.length / totalModules) * 100) : 0;
 
     useEffect(() => {
         const fetchCourses = async () => {
@@ -128,20 +137,20 @@ export default function Dashboard() {
                         <div className="md:col-span-2">
                             {/* For now, just show the first enrolled course as the main progress card */}
                             <ProgressCard
-                                percentage={0} // TODO: hook up real progress
-                                label={myCourses[0].title}
-                                sublabel={`${myCourses[0].duration} Course Compliance`}
+                                percentage={progressPercent}
+                                label={activeCourse.title}
+                                sublabel={`${activeCourse.duration} Course Compliance`}
                             />
                         </div>
 
                         <div className="bg-navy-900 border border-white/5 rounded-2xl p-6 flex flex-col justify-center space-y-4">
                             <div className="flex items-center gap-3 text-slate-300">
                                 <Clock className="text-blue-500" />
-                                <span className="font-medium">0 Hrs Completed</span> {/* TODO: hook up real stats */}
+                                <span className="font-medium">{Math.floor(totalModulesPassed * 0.5)} Hrs Completed</span>
                             </div>
                             <div className="flex items-center gap-3 text-slate-300">
                                 <Trophy className="text-yellow-500" />
-                                <span className="font-medium">0 Modules Passed</span> {/* TODO: hook up real stats */}
+                                <span className="font-medium">{totalModulesPassed} Modules Passed</span>
                             </div>
                         </div>
                     </div>

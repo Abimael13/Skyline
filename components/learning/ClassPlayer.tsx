@@ -10,6 +10,8 @@ import { Play, CheckCircle, Lock, Menu, ChevronRight, FileText, Video, Clock, Bo
 import { Module } from "@/lib/courses";
 import { Button } from "@/components/ui/Button";
 import { PracticeView } from "./PracticeView";
+import { markModuleCompleted } from "@/lib/db";
+import { useAuth } from "@/lib/AuthContext";
 import { LiveClassPlayer } from "./LiveClassPlayer";
 
 interface ClassPlayerProps {
@@ -20,11 +22,35 @@ interface ClassPlayerProps {
 export function ClassPlayer({ session, courseId }: ClassPlayerProps) {
     const modules = session.subModules || [];
     const router = useRouter();
+    const { user, courseProgress } = useAuth();
     const [activeModuleId, setActiveModuleId] = useState<string | number>(modules[0]?.id || "");
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [activeTab, setActiveTab] = useState<"learn" | "practice">("learn");
+    const [completing, setCompleting] = useState(false);
 
     const activeModule = modules.find(m => m.id === activeModuleId) || modules[0];
+
+    const handleCompleteModule = async () => {
+        if (!user || !courseId) return;
+
+        setCompleting(true);
+        try {
+            await markModuleCompleted(user.uid, courseId, activeModule.id);
+            // In a real app, we'd update the local context/state to show the checkmark immediately
+        } catch (error) {
+            console.error("Failed to mark complete:", error);
+        }
+        setCompleting(false);
+
+        const currentIndex = modules.findIndex(m => m.id === activeModuleId);
+        if (currentIndex < modules.length - 1) {
+            setActiveModuleId(modules[currentIndex + 1].id);
+            setActiveTab("learn");
+            window.scrollTo(0, 0);
+        } else {
+            router.push("/portal/courses");
+        }
+    };
 
     if (!activeModule) {
         return <div className="p-8 text-white">No modules found for this class.</div>;
@@ -59,6 +85,11 @@ export function ClassPlayer({ session, courseId }: ClassPlayerProps) {
                 <div className="flex-1 overflow-y-auto p-4 space-y-2">
                     {modules.map((module) => {
                         const isActive = module.id === activeModuleId;
+                        const targetCourseId = courseId || 'f89-flsd';
+                        const isCompleted = courseProgress[targetCourseId]?.completedModules?.some(
+                            id => String(id) === String(module.id)
+                        );
+
                         return (
                             <button
                                 key={module.id}
@@ -72,9 +103,13 @@ export function ClassPlayer({ session, courseId }: ClassPlayerProps) {
                                     }`}
                             >
                                 <div className="flex items-start gap-3">
-                                    <div className={`mt-0.5 rounded-full p-1 ${isActive ? "bg-blue-500 text-white" : "bg-slate-700 text-slate-400"
+                                    <div className={`mt-0.5 rounded-full p-1 ${isActive ? "bg-blue-500 text-white" :
+                                            isCompleted ? "bg-green-500/20 text-green-500 shadow-[0_0_10px_-3px_rgba(34,197,94,0.4)]" :
+                                                "bg-slate-700 text-slate-400"
                                         }`}>
-                                        {isActive ? <Play size={10} fill="currentColor" /> : <div className="w-2.5 h-2.5 rounded-full" />}
+                                        {isActive ? <Play size={10} fill="currentColor" /> :
+                                            isCompleted ? <CheckCircle size={10} /> :
+                                                <div className="w-2.5 h-2.5 rounded-full" />}
                                     </div>
                                     <div>
                                         <h4 className={`text-sm font-medium mb-1 ${isActive ? "text-blue-100" : "text-slate-300"
@@ -224,26 +259,33 @@ export function ClassPlayer({ session, courseId }: ClassPlayerProps) {
                                         )}
 
                                         <div className="grid md:grid-cols-2 gap-6 mb-12">
-                                            <div className="p-4 bg-navy-900 border border-white/5 rounded-xl">
-                                                <h4 className="flex items-center gap-2 text-sm font-medium text-white mb-2">
-                                                    <FileText size={16} className="text-blue-500" />
-                                                    Reference Materials
-                                                </h4>
-                                                <ul className="text-sm text-slate-400 space-y-1 ml-6 list-disc">
-                                                    <li>FDNY Study Guide (Pages 12-24)</li>
-                                                    <li>NYC Fire Code Reference Sheet</li>
-                                                </ul>
-                                            </div>
-                                            <div className="p-4 bg-navy-900 border border-white/5 rounded-xl">
-                                                <h4 className="flex items-center gap-2 text-sm font-medium text-white mb-2">
-                                                    <CheckCircle size={16} className="text-green-500" />
-                                                    Key Objectives
-                                                </h4>
-                                                <ul className="text-sm text-slate-400 space-y-1 ml-6 list-disc">
-                                                    <li>Understand core concepts</li>
-                                                    <li>Apply knowledge to scenarios</li>
-                                                </ul>
-                                            </div>
+                                            {activeModule.referenceMaterials && activeModule.referenceMaterials.length > 0 && (
+                                                <div className="p-4 bg-navy-900 border border-white/5 rounded-xl">
+                                                    <h4 className="flex items-center gap-2 text-sm font-medium text-white mb-2">
+                                                        <FileText size={16} className="text-blue-500" />
+                                                        Reference Materials
+                                                    </h4>
+                                                    <ul className="text-sm text-slate-400 space-y-1 ml-6 list-disc">
+                                                        {activeModule.referenceMaterials.map((item, i) => (
+                                                            <li key={i}>{item}</li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+
+                                            {activeModule.keyObjectives && activeModule.keyObjectives.length > 0 && (
+                                                <div className="p-4 bg-navy-900 border border-white/5 rounded-xl">
+                                                    <h4 className="flex items-center gap-2 text-sm font-medium text-white mb-2">
+                                                        <CheckCircle size={16} className="text-green-500" />
+                                                        Key Objectives
+                                                    </h4>
+                                                    <ul className="text-sm text-slate-400 space-y-1 ml-6 list-disc">
+                                                        {activeModule.keyObjectives.map((item, i) => (
+                                                            <li key={i}>{item}</li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </>
@@ -267,22 +309,16 @@ export function ClassPlayer({ session, courseId }: ClassPlayerProps) {
                                 </Button>
                                 <Button
                                     variant="primary"
-                                    onClick={() => {
-                                        const currentIndex = modules.findIndex(m => m.id === activeModuleId);
-                                        if (currentIndex < modules.length - 1) {
-                                            setActiveModuleId(modules[currentIndex + 1].id);
-                                            setActiveTab("learn");
-                                        } else {
-                                            // Optional: Navigate back to courses or mark absolute completion
-                                            // For now, let's redirect to courses page
-                                            router.push("/portal/courses");
-                                        }
-                                    }}
+                                    onClick={handleCompleteModule}
+                                    disabled={completing}
                                 >
                                     {modules.findIndex(m => m.id === activeModuleId) === modules.length - 1 ? (
                                         <>Finish & Exit <ChevronRight size={16} className="ml-2" /></>
                                     ) : (
-                                        <>Complete & Continue <ChevronRight size={16} className="ml-2" /></>
+                                        <>
+                                            {completing ? "Saving..." : "Complete & Continue"}
+                                            <ChevronRight size={16} className="ml-2" />
+                                        </>
                                     )}
                                 </Button>
                             </div>

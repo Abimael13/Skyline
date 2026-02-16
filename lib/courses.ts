@@ -16,6 +16,8 @@ export interface Module {
         description?: string; // Added description for modules
     };
     practice?: PracticeItem[];
+    referenceMaterials?: string[];
+    keyObjectives?: string[];
 }
 
 export type PracticeType = 'quiz' | 'flashcard' | 'scenario';

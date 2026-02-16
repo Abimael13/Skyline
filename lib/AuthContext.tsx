@@ -16,6 +16,7 @@ interface AuthContextType {
     loading: boolean;
     enrolledCourses: string[];
     enrolledSessions: string[]; // New field
+    courseProgress: Record<string, { completedModules: string[] }>; // Added courseProgress
     examResults: Record<string, any>; // [courseId]: { status, score, diplomaUrl }
     enrollInCourse: (courseId: string) => Promise<void>;
     signOut: () => Promise<void>;
@@ -27,6 +28,7 @@ const AuthContext = createContext<AuthContextType>({
     loading: true,
     enrolledCourses: [],
     enrolledSessions: [],
+    courseProgress: {}, // Default
     examResults: {},
     enrollInCourse: async () => { },
     signOut: async () => { },
@@ -38,6 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [loading, setLoading] = useState(true);
     const [enrolledCourses, setEnrolledCourses] = useState<string[]>([]);
     const [enrolledSessions, setEnrolledSessions] = useState<string[]>([]);
+    const [courseProgress, setCourseProgress] = useState<Record<string, { completedModules: string[] }>>({});
     const [examResults, setExamResults] = useState<Record<string, any>>({});
     const router = useRouter();
 
@@ -70,6 +73,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         // Set Enrolled Sessions
                         setEnrolledSessions(data.enrolledSessions || []);
 
+                        // Set Course Progress
+                        setCourseProgress(data.courseProgress || {});
+
                         // Set Exam Results
                         setExamResults(data.examResults || {});
 
@@ -94,6 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             } else {
                 setEnrolledCourses([]);
                 setEnrolledSessions([]);
+                setCourseProgress({});
                 setRole(null);
                 setLoading(false);
             }
@@ -149,7 +156,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     return (
-        <AuthContext.Provider value={{ user, role, loading, enrolledCourses, enrolledSessions, examResults, enrollInCourse, signOut }}>
+        <AuthContext.Provider value={{ user, role, loading, enrolledCourses, enrolledSessions, courseProgress, examResults, enrollInCourse, signOut }}>
             {children}
         </AuthContext.Provider>
     );

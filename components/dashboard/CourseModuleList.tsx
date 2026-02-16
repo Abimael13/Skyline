@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { useState } from "react";
-import { CheckCircle2, Circle, Lock, ChevronDown, ChevronUp } from "lucide-react";
+import { CheckCircle2, Circle, Lock, ChevronDown, ChevronUp, PlayCircle } from "lucide-react";
 import { clsx } from "clsx";
 import { motion, AnimatePresence } from "framer-motion";
 import { Module } from "@/lib/courses";
+import { useAuth } from "@/lib/AuthContext";
 
 interface CourseModuleListProps {
     courseId?: string; // Add courseId prop
@@ -14,6 +15,8 @@ interface CourseModuleListProps {
 
 export function CourseModuleList({ collapsible = false, modules, courseId, defaultOpen }: CourseModuleListProps) {
     const [isOpen, setIsOpen] = useState(defaultOpen !== undefined ? defaultOpen : !collapsible);
+    const { courseProgress } = useAuth();
+    const completedIds = courseId ? (courseProgress[courseId]?.completedModules || []) : [];
 
     if (!modules || modules.length === 0) {
         return (
@@ -53,9 +56,10 @@ export function CourseModuleList({ collapsible = false, modules, courseId, defau
                     >
                         <div className="space-y-4">
                             {modules.map((module, index) => {
-                                const isCompleted = module.status === "completed";
-                                const isCurrent = module.status === "current";
-                                const isLocked = module.status === "locked";
+                                const isCompleted = completedIds.some(id => String(id) === String(module.id));
+                                const previousCompleted = index === 0 || completedIds.some(id => String(id) === String(modules[index - 1].id));
+                                const isCurrent = !isCompleted && previousCompleted;
+                                const isLocked = !isCompleted && !isCurrent && module.status !== 'unlocked'; // Default strict locking
 
                                 const Content = (
                                     <div
@@ -71,9 +75,13 @@ export function CourseModuleList({ collapsible = false, modules, courseId, defau
                                     >
                                         <div className="flex-shrink-0">
                                             {isCompleted ? (
-                                                <CheckCircle2 className="text-green-500" size={24} />
+                                                <div className="bg-green-500/10 p-1 rounded-full text-green-500">
+                                                    <CheckCircle2 size={20} />
+                                                </div>
                                             ) : isCurrent ? (
-                                                <Circle className="text-blue-500" size={24} />
+                                                <div className="bg-blue-500/10 p-1 rounded-full text-blue-500">
+                                                    <PlayCircle size={20} />
+                                                </div>
                                             ) : (
                                                 <Lock className="text-slate-600" size={24} />
                                             )}
@@ -90,8 +98,13 @@ export function CourseModuleList({ collapsible = false, modules, courseId, defau
                                         </div>
 
                                         {!isLocked && (
-                                            <div className="px-4 py-1.5 rounded-full bg-blue-600/10 text-blue-400 group-hover:bg-blue-600 group-hover:text-white text-xs font-medium transition-colors">
-                                                Start
+                                            <div className={clsx(
+                                                "px-4 py-1.5 rounded-full text-xs font-medium transition-colors",
+                                                isCompleted
+                                                    ? "bg-green-500/10 text-green-400 group-hover:bg-green-500 group-hover:text-white"
+                                                    : "bg-blue-600/10 text-blue-400 group-hover:bg-blue-600 group-hover:text-white"
+                                            )}>
+                                                {isCompleted ? "Review" : "Start"}
                                             </div>
                                         )}
                                     </div>

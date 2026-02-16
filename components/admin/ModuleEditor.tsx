@@ -211,6 +211,29 @@ export function ModuleEditor({ modules, onChange }: ModuleEditorProps) {
                                             />
                                         </div>
 
+                                        <div className="grid md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="text-xs text-slate-500 uppercase font-semibold mb-1 block">Reference Materials (One per line)</label>
+                                                <textarea
+                                                    value={module.referenceMaterials?.join('\n') || ""}
+                                                    onChange={(e) => handleUpdateModule(index, "referenceMaterials", e.target.value.split('\n'))}
+                                                    rows={4}
+                                                    className="w-full bg-navy-900 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 resize-none font-mono text-xs"
+                                                    placeholder="FDNY Study Guide (Pages 12-24)&#10;NYC Fire Code Reference Sheet"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-xs text-slate-500 uppercase font-semibold mb-1 block">Key Objectives (One per line)</label>
+                                                <textarea
+                                                    value={module.keyObjectives?.join('\n') || ""}
+                                                    onChange={(e) => handleUpdateModule(index, "keyObjectives", e.target.value.split('\n'))}
+                                                    rows={4}
+                                                    className="w-full bg-navy-900 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 resize-none font-mono text-xs"
+                                                    placeholder="Understand core concepts&#10;Apply knowledge to scenarios"
+                                                />
+                                            </div>
+                                        </div>
+
                                         {/* Type-Specific Content Editor */}
                                         <div className="bg-navy-950/30 rounded-xl p-4 border border-white/5">
                                             {(module.type === 'quiz' || module.type === 'exam') && (
