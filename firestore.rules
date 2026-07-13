@@ -123,11 +123,11 @@ service cloud.firestore {
     // -----------------------------------------------------------------
     // Session dates/capacity are shown publicly on the site (catalog,
     // registration) so reads stay open. Enrollment COUNTS are only ever
-    // incremented through our server routes (api/register, api/webhooks/
-    // stripe) using the Admin SDK, and the live "start/stop class" toggle
-    // is an admin action (components/admin/AdminLiveSessions.tsx) - so
-    // writes are admin-only from the client. Server routes bypass this rule
-    // anyway via the Admin SDK.
+    // incremented through our server route (api/webhooks/stripe) using the
+    // Admin SDK, and the live "start/stop class" toggle is an admin action
+    // (components/admin/AdminLiveSessions.tsx) - so writes are admin-only
+    // from the client. Server routes bypass this rule anyway via the Admin
+    // SDK.
     match /sessions/{sessionId} {
       allow read: if true;
       allow write: if isAdmin();
