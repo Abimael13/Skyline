@@ -16,6 +16,18 @@ import "@livekit/components-styles";
 // Simulation steps for the proctor connection
 type ConnectionState = "idle" | "checking-system" | "connecting" | "secure" | "room-scan" | "waiting-approval" | "active";
 
+// NOTE ON THE TWO-ATTEMPT EXAM CAP: this component assumes the caller has
+// already confirmed the student is currently allowed to start an attempt.
+// That check happens in the parent route (app/portal/exam/page.tsx, via
+// <ExamAttemptGate>), which wraps this whole component (and the device
+// check that runs before it) so an ineligible student never even reaches
+// the "Initiate Connection" button below. See lib/examEligibility.ts for
+// the eligibility rules. None of that is the real enforcement, though -
+// the actual source of truth is the server-side check inside
+// app/api/exam/submit/route.ts's submitExam() call below, which
+// independently re-verifies eligibility (in a transaction) before grading
+// or writing any result. A student cannot get a valid score by bypassing
+// this component.
 export function ExamPortal() {
     const { user } = useAuth();
     const router = useRouter();

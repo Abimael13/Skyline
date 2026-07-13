@@ -3,12 +3,21 @@
 import { useAuth } from "@/lib/AuthContext";
 import { ProgressCard } from "@/components/dashboard/ProgressCards";
 import { CourseModuleList } from "@/components/dashboard/CourseModuleList";
-import { Clock, Trophy, BookOpen, CheckCircle } from "lucide-react";
+import { Clock, Trophy, BookOpen, CheckCircle, ShieldAlert, AlertTriangle } from "lucide-react";
 import { Course } from "@/lib/courses";
 import { getCourseById } from "@/lib/db";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { useEffect, useState } from "react";
+import { getExamAttemptEligibility, EXAM_INELIGIBLE_MESSAGES, ExamResultRecord } from "@/lib/examEligibility";
+
+// Real, working contact info shown whenever a student is stuck waiting on
+// admin review or has run out of attempts - support@skylinesafetyservices.com
+// is the same verified sending address used across lib/email.ts's
+// EMAIL_FROM; the phone number matches the one shown on app/contact/page.tsx.
+const SUPPORT_EMAIL = "support@skylinesafetyservices.com";
+const SUPPORT_PHONE_DISPLAY = "(718) 323-8600";
+const SUPPORT_PHONE_TEL = "+17183238600";
 
 export default function Dashboard() {
     const { user, enrolledCourses, courseProgress, examResults, loading: authLoading } = useAuth();
@@ -184,7 +193,14 @@ export default function Dashboard() {
                         <div className="lg:col-span-2 space-y-6">
                             <h3 className="font-semibold text-white text-lg">Your Courses</h3>
                             {myCourses.map(course => {
-                                const result = examResults?.[course.id];
+                                const result = examResults?.[course.id] as ExamResultRecord | undefined;
+                                // Two-attempt exam cap: a failed attempt is never
+                                // self-service. See lib/examEligibility.ts for the
+                                // full state machine - the real enforcement lives
+                                // server-side in app/api/exam/submit/route.ts, this
+                                // is just what tells the student what state they're
+                                // in and whether they have anything to do.
+                                const eligibility = getExamAttemptEligibility(result);
                                 return (
                                     <div key={course.id} className="bg-navy-900 border border-white/5 rounded-xl p-6 relative overflow-hidden">
                                         {/* Status Badge */}
@@ -210,12 +226,90 @@ export default function Dashboard() {
                                                 </a>
                                             )}
 
-                                            {result?.status === 'failed' && (
-                                                <Link href="/portal/exam/schedule-retake">
-                                                    <Button size="sm" className="bg-red-600 hover:bg-red-500 border-red-500">
-                                                        Schedule Retake (Due by {new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString()})
-                                                    </Button>
-                                                </Link>
+                                            {/* Failed, attempt 1, admin has approved a retake: send them
+                                                straight into the exam flow (real enforcement is server-side).
+                                                Uses Button's own href prop (not Button nested inside a
+                                                separate <Link>) so this renders as a single valid <a> -
+                                                this is the single most important click target in the whole
+                                                retake flow, and a <button> nested inside an <a> is invalid
+                                                HTML that can break keyboard/screen-reader focus. */}
+                                            {result?.status === 'failed' && eligibility.eligible && eligibility.attemptNumber === 2 && (
+                                                <Button
+                                                    href="/portal/exam"
+                                                    size="sm"
+                                                    className="bg-emerald-600 hover:bg-emerald-500 border-emerald-500"
+                                                >
+                                                    You've Been Cleared for a Retake - Start Now
+                                                </Button>
+                                            )}
+
+                                            {/* Failed, attempt 1, awaiting admin review: no self-service
+                                                action. Body copy comes from lib/examEligibility.ts's
+                                                EXAM_INELIGIBLE_MESSAGES - the same shared source of truth
+                                                components/learning/ExamAttemptGate.tsx uses - plus a real
+                                                contact method and a stated review turnaround. */}
+                                            {result?.status === 'failed' && !eligibility.eligible && eligibility.reason === 'awaiting-review' && (
+                                                <div className="flex items-start gap-2 text-sm text-slate-400 bg-white/5 border border-white/5 rounded-lg px-4 py-3 max-w-md">
+                                                    <Clock size={16} className="text-yellow-500 shrink-0 mt-0.5" />
+                                                    <div className="space-y-1">
+                                                        <p>{EXAM_INELIGIBLE_MESSAGES['awaiting-review']}</p>
+                                                        <p>
+                                                            Email{" "}
+                                                            <a href={`mailto:${SUPPORT_EMAIL}`} className="text-blue-400 hover:text-blue-300 font-medium">
+                                                                {SUPPORT_EMAIL}
+                                                            </a>{" "}
+                                                            or call{" "}
+                                                            <a href={`tel:${SUPPORT_PHONE_TEL}`} className="text-blue-400 hover:text-blue-300 font-medium">
+                                                                {SUPPORT_PHONE_DISPLAY}
+                                                            </a>.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Failed, attempt 2 (or otherwise exhausted): hard stop, no
+                                                retake possible. */}
+                                            {result?.status === 'failed' && !eligibility.eligible && eligibility.reason === 'attempts-exhausted' && (
+                                                <div className="flex items-start gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3 max-w-md">
+                                                    <ShieldAlert size={16} className="shrink-0 mt-0.5" />
+                                                    <div className="space-y-1">
+                                                        <p>{EXAM_INELIGIBLE_MESSAGES['attempts-exhausted']}</p>
+                                                        <p>
+                                                            Email{" "}
+                                                            <a href={`mailto:${SUPPORT_EMAIL}`} className="text-red-300 hover:text-red-200 font-medium">
+                                                                {SUPPORT_EMAIL}
+                                                            </a>{" "}
+                                                            or call{" "}
+                                                            <a href={`tel:${SUPPORT_PHONE_TEL}`} className="text-red-300 hover:text-red-200 font-medium">
+                                                                {SUPPORT_PHONE_DISPLAY}
+                                                            </a>.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Malformed/unrecognized exam record: fails closed rather
+                                                than silently granting a new attempt - see
+                                                lib/examEligibility.ts. Not gated on status === 'failed'
+                                                since a malformed record may have no recognizable status
+                                                at all. */}
+                                            {!!result && !eligibility.eligible && eligibility.reason === 'invalid-record' && (
+                                                <div className="flex items-start gap-2 text-sm text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-4 py-3 max-w-md">
+                                                    <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                                                    <div className="space-y-1">
+                                                        <p>{EXAM_INELIGIBLE_MESSAGES['invalid-record']}</p>
+                                                        <p>
+                                                            Email{" "}
+                                                            <a href={`mailto:${SUPPORT_EMAIL}`} className="text-yellow-300 hover:text-yellow-200 font-medium">
+                                                                {SUPPORT_EMAIL}
+                                                            </a>{" "}
+                                                            or call{" "}
+                                                            <a href={`tel:${SUPPORT_PHONE_TEL}`} className="text-yellow-300 hover:text-yellow-200 font-medium">
+                                                                {SUPPORT_PHONE_DISPLAY}
+                                                            </a>.
+                                                        </p>
+                                                    </div>
+                                                </div>
                                             )}
                                         </div>
                                     </div>

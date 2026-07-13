@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getAdminApp, verifyIdToken } from "@/lib/firebaseAdmin";
 import { COURSES } from "@/lib/courses";
+import { getExamAttemptEligibility, EXAM_INELIGIBLE_MESSAGES, ExamResultRecord, ExamIneligibleReason } from "@/lib/examEligibility";
 
 // ---------------------------------------------------------------------------
 // Submit + grade the proctored graduation exam.
@@ -22,6 +23,16 @@ import { COURSES } from "@/lib/courses";
 // which bypasses firestore.rules by design - same pattern as
 // app/api/admin/grade-exam/route.ts and app/api/auth/redeem-code/route.ts).
 //
+// This route also enforces the two-attempt cap (see lib/examEligibility.ts
+// for the full state machine): a student gets at most two attempts, ever.
+// A failed first attempt requires an admin to explicitly approve a retake
+// (app/api/admin/approve-retake/route.ts) before a second attempt is
+// possible, and a second attempt - pass or fail - is always final. The
+// eligibility check and the result write happen inside a single Firestore
+// transaction so two near-simultaneous submissions (a double click, two
+// open tabs) can't both read "attempt not yet used" and sneak in an extra
+// attempt.
+//
 // IMPORTANT CAVEAT (see report to owner): lib/courses.ts, including each
 // question's `correctIndex`, is imported directly into the client bundle by
 // ExamPortal.tsx to render the questions. That means the answer key is still
@@ -34,6 +45,17 @@ import { COURSES } from "@/lib/courses";
 // ---------------------------------------------------------------------------
 
 const PASSING_SCORE = 70;
+
+// Thrown inside the attempt-cap transaction below when a student is not
+// currently allowed to start a new attempt (already passed, already used
+// both attempts, or on a failed first attempt without admin approval).
+// Caught right outside the transaction and turned into a 403 response.
+class ExamAttemptBlockedError extends Error {
+    constructor(reason: ExamIneligibleReason) {
+        super(EXAM_INELIGIBLE_MESSAGES[reason]);
+        this.name = "ExamAttemptBlockedError";
+    }
+}
 
 export async function POST(req: Request) {
     let decodedToken;
@@ -90,6 +112,67 @@ export async function POST(req: Request) {
         const gradedAt = new Date().toISOString();
 
         const adminDb = getFirestore(getAdminApp());
+        const userRef = adminDb.collection("users").doc(uid);
+
+        // 1. Attempt-cap gate + grade write, done atomically in one
+        // transaction. Reading the student's current examResults[courseId]
+        // and writing the new one in the same transaction is what actually
+        // prevents a race (e.g. a double-submit, or two open tabs) from
+        // both reading "no attempt used yet" and both getting through -
+        // Firestore transactions retry automatically on write conflicts, so
+        // only one of two racing submissions can ever win the eligibility
+        // check.
+        let attemptNumber: 1 | 2;
+        try {
+            attemptNumber = await adminDb.runTransaction(async (tx) => {
+                const userSnap = await tx.get(userRef);
+                const existingResult = userSnap.exists
+                    ? (userSnap.data()?.examResults?.[courseId] as ExamResultRecord | undefined)
+                    : undefined;
+
+                const eligibility = getExamAttemptEligibility(existingResult);
+                if (!eligibility.eligible) {
+                    throw new ExamAttemptBlockedError(eligibility.reason);
+                }
+
+                // This is the write that firestore.rules blocks from the
+                // client SDK entirely - the Admin SDK bypasses that rule by
+                // design, which is correct here because the authorization,
+                // grading, and attempt-cap check have already happened
+                // above/in this same transaction. `retakeApproved` is reset
+                // to false on every write: it is only ever "true" again
+                // once an admin approves a fresh retake after a new failed
+                // first attempt, and once this is attempt 2 the value is
+                // moot anyway since `attempt >= 2` blocks all further
+                // attempts regardless of it. `retakeApprovedBy`/
+                // `retakeApprovedAt` are deliberately left out of this
+                // write (not overwritten) so the audit trail of who
+                // approved this attempt survives into the graded result.
+                tx.set(
+                    userRef,
+                    {
+                        examResults: {
+                            [courseId]: {
+                                status: passed ? "passed" : "failed",
+                                score,
+                                gradedAt,
+                                diplomaUrl,
+                                attempt: eligibility.attemptNumber,
+                                retakeApproved: false,
+                            },
+                        },
+                    },
+                    { merge: true }
+                );
+
+                return eligibility.attemptNumber;
+            });
+        } catch (error: any) {
+            if (error instanceof ExamAttemptBlockedError) {
+                return NextResponse.json({ error: error.message }, { status: 403 });
+            }
+            throw error;
+        }
 
         const submissionData = {
             courseId,
@@ -99,38 +182,28 @@ export async function POST(req: Request) {
             status: "submitted",
             score,
             passed,
+            attempt: attemptNumber,
         };
 
-        // 1. Save the detailed submission record (Admin SDK - same
-        // examSubmissions doc the client used to write directly; keeping it
-        // here too so admins retain the raw-answers audit trail).
+        // 2. Save the detailed submission record (Admin SDK - same
+        // examSubmissions collection the client used to write directly;
+        // keeping it here too so admins retain the raw-answers audit trail).
+        // Only reached once the attempt has been accepted above.
+        //
+        // Doc ID is keyed by BOTH courseId and attempt number
+        // (`${courseId}_attempt${attemptNumber}`, e.g. "f89-flsd_attempt1"
+        // and "f89-flsd_attempt2"), not just courseId. A fixed
+        // `${courseId}`-only doc ID would mean a second attempt's raw
+        // answers silently overwrite the first attempt's - the exact
+        // opposite of an audit trail. See app/admin/students/[studentId]/page.tsx
+        // for the matching read side, which looks up the submission for
+        // each attempt this way too.
         await adminDb
             .collection("users")
             .doc(uid)
             .collection("examSubmissions")
-            .doc(courseId)
+            .doc(`${courseId}_attempt${attemptNumber}`)
             .set(submissionData);
-
-        // 2. Update the student's profile with the server-computed grade.
-        // This is the write that firestore.rules now blocks from the client
-        // SDK - the Admin SDK bypasses that rule entirely, which is correct
-        // here because the authorization + grading already happened above.
-        await adminDb
-            .collection("users")
-            .doc(uid)
-            .set(
-                {
-                    examResults: {
-                        [courseId]: {
-                            status: passed ? "passed" : "failed",
-                            score,
-                            gradedAt,
-                            diplomaUrl,
-                        },
-                    },
-                },
-                { merge: true }
-            );
 
         // 3. Close out the proctoring session, if one exists.
         const sessionId = `${uid}_f89-flsd`;
@@ -158,6 +231,7 @@ export async function POST(req: Request) {
             totalQuestions: questions.length,
             correctCount,
             diplomaUrl,
+            attempt: attemptNumber,
         });
     } catch (error: any) {
         console.error("Exam submission failed:", error);

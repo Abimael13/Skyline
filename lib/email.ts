@@ -1,5 +1,5 @@
 import { Resend } from "resend";
-import { generateWelcomeEmailHtml, generateExamPassEmailHtml, generateExamFailEmailHtml, generateVerificationEmailHtml, generateContactEmailHtml } from "./email-templates";
+import { generateWelcomeEmailHtml, generateExamPassEmailHtml, generateExamFailEmailHtml, generateRetakeApprovedEmailHtml, generateVerificationEmailHtml, generateContactEmailHtml } from "./email-templates";
 
 // Resend client - transactional email API, replaces the old Office365/nodemailer SMTP transport.
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -47,11 +47,10 @@ interface ExamResultEmailProps {
     passed: boolean;
     score: number;
     diplomaDownloadUrl?: string; // We'll attach this if passed
-    retakeDateLimit?: string;
 }
 
 
-export async function sendExamResultEmail({ email, name, courseTitle, passed, score, diplomaDownloadUrl, retakeDateLimit }: ExamResultEmailProps) {
+export async function sendExamResultEmail({ email, name, courseTitle, passed, score, diplomaDownloadUrl }: ExamResultEmailProps) {
     // ... (existing code) ...
     let htmlContent: string;
     let subject: string;
@@ -68,12 +67,7 @@ export async function sendExamResultEmail({ email, name, courseTitle, passed, sc
             });
         }
     } else {
-        htmlContent = generateExamFailEmailHtml({
-            name,
-            courseTitle,
-            score,
-            retakeDateLimit: retakeDateLimit || "30 days"
-        });
+        htmlContent = generateExamFailEmailHtml({ name, courseTitle, score });
         subject = `Exam Result Notification - ${courseTitle}`;
     }
 
@@ -95,6 +89,42 @@ export async function sendExamResultEmail({ email, name, courseTitle, passed, sc
         return true;
     } catch (error) {
         console.error("Error sending exam result email:", error);
+        return false;
+    }
+}
+
+interface RetakeApprovedEmailProps {
+    email: string;
+    name: string;
+    courseTitle: string;
+}
+
+// Sent by app/api/admin/approve-retake/route.ts the moment an admin approves
+// a student's second and final attempt at the graduation exam. This is the
+// real notification path required by the two-attempt policy: a student who
+// fails their first attempt has no self-service way to start a retake, so
+// this email (and only this email) is what tells them they're cleared to
+// go back in.
+export async function sendRetakeApprovedEmail({ email, name, courseTitle }: RetakeApprovedEmailProps) {
+    const htmlContent = generateRetakeApprovedEmailHtml({ name, courseTitle });
+
+    try {
+        const { error } = await resend.emails.send({
+            from: `Skyline Academics <${process.env.EMAIL_FROM}>`,
+            to: email,
+            subject: `You're Cleared to Retake Your Exam - ${courseTitle}`,
+            html: htmlContent
+        });
+
+        if (error) {
+            console.error("Error sending retake approved email:", error);
+            return false;
+        }
+
+        console.log(`Retake approved email sent to ${email}`);
+        return true;
+    } catch (error) {
+        console.error("Error sending retake approved email:", error);
         return false;
     }
 }

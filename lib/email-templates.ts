@@ -98,7 +98,6 @@ export interface ExamPassEmailProps extends BaseEmailProps {
 
 export interface ExamFailEmailProps extends BaseEmailProps {
     score: number;
-    retakeDateLimit: string; // 30 days from now
 }
 
 export const generateExamPassEmailHtml = ({ name, courseTitle, score }: ExamPassEmailProps) => {
@@ -159,7 +158,7 @@ export const generateExamPassEmailHtml = ({ name, courseTitle, score }: ExamPass
 `;
 };
 
-export const generateExamFailEmailHtml = ({ name, courseTitle, score, retakeDateLimit }: ExamFailEmailProps) => {
+export const generateExamFailEmailHtml = ({ name, courseTitle, score }: ExamFailEmailProps) => {
     // `name` ultimately comes from the student's stored displayName (set by
     // the user at signup), so it is treated as user-controllable and escaped.
     const safeName = escapeHtml(name);
@@ -194,14 +193,68 @@ export const generateExamFailEmailHtml = ({ name, courseTitle, score, retakeDate
             </div>
 
             <p>Unfortunately, you did not meet the passing requirements on this attempt.</p>
-            
-            <h3>Retake Policy</h3>
-            <p>You are eligible for a makeup exam. <strong>You must complete this retake by ${retakeDateLimit}</strong> (30 days from today).</p>
-            
-            <p>Please log in to your student portal to schedule your retake session as soon as possible to ensure you complete the course within the allowed timeframe.</p>
-            
-            <a href="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/portal" class="button">Log In to Schedule Retake</a>
-            
+
+            <h3>What Happens Next</h3>
+            <p>Every candidate is allowed a maximum of two attempts at the graduation exam. Your result is now under review by our academics team - there is nothing you need to schedule or request yourself. If you're cleared for your second and final attempt, we'll send you a separate email with instructions to get started.</p>
+
+            <a href="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/portal/dashboard" class="button">View My Dashboard</a>
+
+            <p>Best regards,<br/>Skyline Safety Services</p>
+        </div>
+        <div class="footer">
+            &copy; ${new Date().getFullYear()} Skyline Safety Services. All rights reserved.
+        </div>
+    </div>
+</body>
+</html>
+`;
+};
+
+// Sent when an admin approves a student's second and final attempt at the
+// graduation exam, after reviewing a failed first attempt
+// (app/api/admin/approve-retake/route.ts). This is the only notification a
+// student receives that they are cleared to retake - there is no
+// self-service scheduling flow, so this email is what actually unblocks
+// them.
+export const generateRetakeApprovedEmailHtml = ({ name, courseTitle }: BaseEmailProps) => {
+    // `name` ultimately comes from the student's stored displayName (set by
+    // the user at signup), so it is treated as user-controllable and escaped.
+    const safeName = escapeHtml(name);
+    const portalLink = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/portal/exam`;
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 8px; }
+        .header { background-color: #1e3a8a; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+        .content { padding: 30px 20px; }
+        .button { display: inline-block; padding: 12px 24px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; margin-top: 20px; }
+        .alert { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; color: #92400e; }
+        .footer { font-size: 12px; color: #666; text-align: center; margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>You're Cleared to Retake Your Exam</h1>
+        </div>
+        <div class="content">
+            <p>Dear ${safeName},</p>
+
+            <p>We've reviewed your recent Graduation Exam attempt for <strong>${courseTitle}</strong>, and you've been approved for a retake.</p>
+
+            <div class="alert">
+                <strong>This is your final attempt.</strong> Every candidate is allowed a maximum of two attempts at the graduation exam, so please review your course materials carefully before you begin.
+            </div>
+
+            <p>When you're ready, log in to your student portal to start your proctored retake. You'll need the same setup as your first attempt: a Laptop or Desktop computer with a working camera and microphone.</p>
+
+            <center>
+                <a href="${portalLink}" class="button">Start Your Retake</a>
+            </center>
+
             <p>Best regards,<br/>Skyline Safety Services</p>
         </div>
         <div class="footer">

@@ -2,12 +2,13 @@
 
 import { use, useEffect, useState } from "react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import { Loader2, Mail, User, Shield, BookOpen, ArrowLeft, CheckCircle, XCircle, FileText } from "lucide-react";
+import { auth, db } from "@/lib/firebase";
+import { Loader2, Mail, User, Shield, BookOpen, ArrowLeft, CheckCircle, XCircle, FileText, ShieldCheck, Clock } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { GradingForm } from "@/components/admin/GradingForm";
 import { COURSES } from "@/lib/courses";
+import { getExamAttemptEligibility, ExamResultRecord } from "@/lib/examEligibility";
 
 // Properly type page props for Next.js App Router
 type Params = Promise<{ studentId: string }>;
@@ -18,7 +19,7 @@ interface UserData {
     displayName?: string;
     enrolledCourses?: string[];
     role?: string;
-    examResults?: Record<string, any>;
+    examResults?: Record<string, ExamResultRecord>;
 }
 
 interface ExamSubmission {
@@ -36,6 +37,13 @@ export default function StudentDetailPage(props: { params: Params }) {
     const [submission, setSubmission] = useState<ExamSubmission | null>(null);
     const [loading, setLoading] = useState(true);
     const [showExam, setShowExam] = useState(false);
+    const [approvingRetakeFor, setApprovingRetakeFor] = useState<string | null>(null);
+    // Required note explaining why a retake is being approved (what was
+    // reviewed, any context) - keyed by courseId so each course's retake
+    // approval card has its own draft. Sent to
+    // app/api/admin/approve-retake/route.ts and stored as
+    // examResults[courseId].retakeApprovalNotes.
+    const [retakeNotes, setRetakeNotes] = useState<Record<string, string>>({});
 
     useEffect(() => {
         const fetchData = async () => {
@@ -45,11 +53,27 @@ export default function StudentDetailPage(props: { params: Params }) {
                 const userSnap = await getDoc(userDocRef);
 
                 if (userSnap.exists()) {
-                    setStudent({ uid: userSnap.id, ...userSnap.data() } as UserData);
+                    const userData = userSnap.data();
+                    setStudent({ uid: userSnap.id, ...userData } as UserData);
 
-                    // Fetch Exam Submission (Assuming F-89 for now)
-                    const subDocRef = doc(db, "users", studentId, "examSubmissions", "f89-flsd");
-                    const subSnap = await getDoc(subDocRef);
+                    // Fetch Exam Submission (Assuming F-89 for now).
+                    // examSubmissions is keyed by BOTH courseId and attempt
+                    // number (see app/api/exam/submit/route.ts), so look up
+                    // the submission for whichever attempt the current
+                    // graded result reflects - that's the one the "View
+                    // Answers" panel below is meant to show.
+                    const currentResult = userData?.examResults?.["f89-flsd"] as ExamResultRecord | undefined;
+                    const attempt = currentResult?.attempt ?? 1;
+                    const subDocRef = doc(db, "users", studentId, "examSubmissions", `f89-flsd_attempt${attempt}`);
+                    let subSnap = await getDoc(subDocRef);
+
+                    // Backward compatibility: submissions written before
+                    // this fix used a fixed "f89-flsd" doc ID with no
+                    // attempt suffix.
+                    if (!subSnap.exists()) {
+                        subSnap = await getDoc(doc(db, "users", studentId, "examSubmissions", "f89-flsd"));
+                    }
+
                     if (subSnap.exists()) {
                         setSubmission(subSnap.data() as ExamSubmission);
                     }
@@ -63,6 +87,59 @@ export default function StudentDetailPage(props: { params: Params }) {
 
         fetchData();
     }, [studentId]);
+
+    // Approve a student's second and final attempt after reviewing a failed
+    // first attempt. Calls the admin-only, server-verified route (which
+    // re-checks eligibility itself and sends the retake-approved email) -
+    // matches the same "ID token in Authorization header" pattern used by
+    // components/admin/GradingForm.tsx.
+    const handleApproveRetake = async (courseId: string) => {
+        if (!student) return;
+
+        const notes = (retakeNotes[courseId] || "").trim();
+        if (!notes) {
+            alert("Please enter a short note on why this retake is being approved before continuing.");
+            return;
+        }
+
+        if (!confirm("Approve a retake for this student? They will get one final attempt and will be emailed immediately.")) {
+            return;
+        }
+
+        setApprovingRetakeFor(courseId);
+        try {
+            if (!auth.currentUser) {
+                throw new Error("You must be signed in as an admin to approve a retake.");
+            }
+            const idToken = await auth.currentUser.getIdToken();
+
+            const response = await fetch("/api/admin/approve-retake", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${idToken}`,
+                },
+                body: JSON.stringify({ studentId: student.uid, courseId, notes }),
+            });
+
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || "Failed to approve retake.");
+            }
+
+            alert(
+                data.emailSent
+                    ? "Retake approved. The student has been emailed."
+                    : "Retake approved, but the notification email failed to send. Please follow up with the student directly."
+            );
+            window.location.reload();
+        } catch (error: any) {
+            console.error("Error approving retake:", error);
+            alert(error.message || "Error approving retake.");
+        } finally {
+            setApprovingRetakeFor(null);
+        }
+    };
 
     // Get Exam Questions
     const examModule = COURSES.find(c => c.id === "f89-flsd")?.modules.find(m => m.type === "exam");
@@ -114,7 +191,18 @@ export default function StudentDetailPage(props: { params: Params }) {
                                 status: "submitted"
                             };
 
-                            await setDoc(doc(db, "users", studentId, "examSubmissions", "f89-flsd"), submissionData);
+                            // Key this mock submission the same way the real
+                            // proctored exam does (courseId + attempt number)
+                            // so it lines up with whichever attempt is about
+                            // to be graded, rather than silently overwriting
+                            // a previous attempt's raw answers.
+                            const existingResult = student.examResults?.["f89-flsd"];
+                            const mockEligibility = getExamAttemptEligibility(existingResult);
+                            const mockAttempt = mockEligibility.eligible
+                                ? mockEligibility.attemptNumber
+                                : (existingResult?.attempt ?? 1);
+
+                            await setDoc(doc(db, "users", studentId, "examSubmissions", `f89-flsd_attempt${mockAttempt}`), submissionData);
                             setSubmission(submissionData as ExamSubmission);
                             alert("Mock exam generated!");
                         } catch (e) {
@@ -140,6 +228,14 @@ export default function StudentDetailPage(props: { params: Params }) {
                 ) : (
                     student.enrolledCourses.map(courseId => {
                         const result = student.examResults?.[courseId];
+                        // Two-attempt exam cap: this button is only ever
+                        // shown when the student is genuinely sitting in
+                        // the failed-attempt-1-awaiting-review state. The
+                        // API route re-checks this itself server-side too
+                        // (never trust this client-side check alone) - see
+                        // lib/examEligibility.ts for the full state machine.
+                        const eligibility = getExamAttemptEligibility(result);
+                        const canApproveRetake = !eligibility.eligible && eligibility.reason === 'awaiting-review';
 
                         // Calculate score if submission exists for this course
                         let calculatedScore = 0;
@@ -177,6 +273,68 @@ export default function StudentDetailPage(props: { params: Params }) {
                                                 <a href={result.diplomaUrl} target="_blank" className="text-blue-400 hover:text-blue-300 text-sm underline">
                                                     View / Download Diploma PDF
                                                 </a>
+                                            </div>
+                                        )}
+
+                                        {/* Retake status / approval action - only relevant for a failed result. */}
+                                        {result.status === 'failed' && (
+                                            <div className="mt-4 pt-4 border-t border-white/5">
+                                                {canApproveRetake && (
+                                                    <div className="space-y-3">
+                                                        <div className="flex items-center gap-2 text-sm text-yellow-400">
+                                                            <Clock size={16} className="shrink-0" />
+                                                            Attempt 1 failed - awaiting review. Not yet approved for a retake.
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-xs font-semibold text-slate-400 uppercase mb-2">
+                                                                Approval Notes (required)
+                                                            </label>
+                                                            <textarea
+                                                                value={retakeNotes[courseId] || ""}
+                                                                onChange={(e) =>
+                                                                    setRetakeNotes((prev) => ({ ...prev, [courseId]: e.target.value }))
+                                                                }
+                                                                rows={2}
+                                                                placeholder="What did you review? Why is this student being cleared for a retake?"
+                                                                className="w-full bg-navy-950 border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500 resize-none text-sm"
+                                                            />
+                                                        </div>
+                                                        <div className="flex justify-end">
+                                                            <Button
+                                                                size="sm"
+                                                                onClick={() => handleApproveRetake(courseId)}
+                                                                disabled={approvingRetakeFor === courseId || !(retakeNotes[courseId] || "").trim()}
+                                                                className="bg-emerald-600 hover:bg-emerald-500 border-emerald-500"
+                                                            >
+                                                                {approvingRetakeFor === courseId ? (
+                                                                    <Loader2 className="animate-spin mr-2" size={16} />
+                                                                ) : (
+                                                                    <ShieldCheck className="mr-2" size={16} />
+                                                                )}
+                                                                Approve Retake
+                                                            </Button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {!eligibility.eligible && eligibility.reason === 'attempts-exhausted' && (
+                                                    <div className="flex items-center gap-2 text-sm text-red-400">
+                                                        <XCircle size={16} className="shrink-0" />
+                                                        Both allowed attempts have been used. No further attempts are possible.
+                                                    </div>
+                                                )}
+                                                {eligibility.eligible && (
+                                                    <div className="flex items-start gap-2 text-sm text-emerald-400">
+                                                        <CheckCircle size={16} className="shrink-0 mt-0.5" />
+                                                        <div>
+                                                            <p>
+                                                                Retake approved{result.retakeApprovedBy ? ` by ${result.retakeApprovedBy}` : ''}{result.retakeApprovedAt ? ` on ${new Date(result.retakeApprovedAt).toLocaleDateString()}` : ''}. Awaiting the student's second attempt.
+                                                            </p>
+                                                            {result.retakeApprovalNotes && (
+                                                                <p className="text-slate-400 mt-1">Notes: {result.retakeApprovalNotes}</p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
                                     </div>
