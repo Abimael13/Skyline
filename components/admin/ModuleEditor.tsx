@@ -240,6 +240,7 @@ export function ModuleEditor({ modules, onChange }: ModuleEditorProps) {
                                                 <QuizEditor
                                                     questions={module.content?.questions || []}
                                                     onChange={(q) => handleUpdateContent(index, { questions: q })}
+                                                    lockAnswerKey={module.type === 'exam'}
                                                 />
                                             )}
                                             {module.type === 'flashcards' && (

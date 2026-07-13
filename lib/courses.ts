@@ -8,7 +8,25 @@ export interface Module {
     route?: string;
     subModules?: Module[]; // Recursive structure for Class Sessions
     content?: {
-        questions?: { text: string; options: string[]; correctIndex: number }[];
+        // `correctIndex` is optional here (not required) specifically so the
+        // graduation exam's questions (the "exam" type module below) can omit
+        // it entirely. Practice/review quizzes are expected to always set it -
+        // see QuizPlayer.tsx, which treats a missing correctIndex as "nothing
+        // matches" (safe default, never accidentally reveals an answer).
+        //
+        // SECURITY: the graduation exam's correct answers are NOT stored here.
+        // They live server-only in lib/examAnswerKeys.ts, matched to this
+        // `questions` array by array index (question 0 -> answerKey[0], etc).
+        // Do not add `correctIndex` back onto the exam module's questions -
+        // this file (lib/courses.ts) is imported directly by client
+        // ("use client") components such as components/learning/ExamPortal.tsx
+        // to render question text/options, and by the course-seeding flow
+        // (lib/db.ts seedCourses, app/admin/courses/page.tsx) which writes
+        // this data to the publicly-readable Firestore `courses` collection
+        // (see firestore.rules: `allow read: if true`). Anything placed here
+        // ships to every visitor's browser and is queryable by anyone,
+        // regardless of which page they're on.
+        questions?: { text: string; options: string[]; correctIndex?: number }[];
         cards?: { front: string; back: string }[];
         videoUrl?: string;
         body?: string;
@@ -1125,6 +1143,24 @@ The FLSD serves as a liaison to provide building intelligence (blueprints, acces
                 route: "/portal/learning/class-8",
                 content: {
                     description: "The final review session before the Graduation Exam. Covers all key topics and provides study materials.",
+                    // SECURITY: this is a byte-for-byte duplicate of the
+                    // actual proctored "graduation-exam" module's questions
+                    // below (same text, same options, same order) - almost
+                    // certainly copy-pasted during authoring as a "review the
+                    // exam topics" aid. It has no UI consumer today (no
+                    // player renders a "class-session" module's own
+                    // `content.questions` - see app/portal/learn/[courseId]/[moduleId]/page.tsx),
+                    // but it is still bundled into the client along with the
+                    // rest of lib/courses.ts. Because it's the SAME exam,
+                    // `correctIndex` was removed here too, exactly as it was
+                    // removed from the "graduation-exam" module - leaving it
+                    // here would have fully defeated that fix, since the
+                    // graduation exam's answers would still be readable
+                    // verbatim from this "Final Review" copy. If this module
+                    // is ever wired up to an actual review UI in the future,
+                    // treat it the same as the exam module (server-only
+                    // answer key, no correctIndex shipped to the client), not
+                    // as an ordinary practice quiz.
                     questions: [
                         {
                             text: "What is the primary responsibility of the Fire and Life Safety Director during a fire emergency?",
@@ -1133,8 +1169,7 @@ The FLSD serves as a liaison to provide building intelligence (blueprints, acces
                                 "Report to the Fire Command Station and coordinate with FDNY",
                                 "Fight the fire with a portable extinguisher",
                                 "Call the building owner"
-                            ],
-                            correctIndex: 1
+                            ]
                         },
                         {
                             text: "When must the Fire and Life Safety Director be present in the building?",
@@ -1143,8 +1178,7 @@ The FLSD serves as a liaison to provide building intelligence (blueprints, acces
                                 "Only during fire drills",
                                 "During regular business hours",
                                 "Whenever the building manager is away"
-                            ],
-                            correctIndex: 2
+                            ]
                         },
                         {
                             text: "Which of the following is NOT a component of the Fire Triangle (Tetrahedron)?",
@@ -1153,8 +1187,7 @@ The FLSD serves as a liaison to provide building intelligence (blueprints, acces
                                 "Fuel",
                                 "Nitrogen",
                                 "Oxygen"
-                            ],
-                            correctIndex: 2
+                            ]
                         },
                         {
                             text: "What is the minimum passing score for this graduation exam?",
@@ -1163,8 +1196,7 @@ The FLSD serves as a liaison to provide building intelligence (blueprints, acces
                                 "65%",
                                 "70%",
                                 "100%"
-                            ],
-                            correctIndex: 2
+                            ]
                         },
                         {
                             text: "Which class of standpipe system is designed for use by building occupants?",
@@ -1173,8 +1205,7 @@ The FLSD serves as a liaison to provide building intelligence (blueprints, acces
                                 "Class II",
                                 "Class III",
                                 "Class IV"
-                            ],
-                            correctIndex: 1
+                            ]
                         },
                         {
                             text: "How often must the FLSD Certificate of Fitness be renewed?",
@@ -1183,8 +1214,7 @@ The FLSD serves as a liaison to provide building intelligence (blueprints, acces
                                 "Every 3 years",
                                 "Every 5 years",
                                 "It does not expire"
-                            ],
-                            correctIndex: 1
+                            ]
                         },
                         {
                             text: "What does the 'A' in EAP stand for?",
@@ -1193,8 +1223,7 @@ The FLSD serves as a liaison to provide building intelligence (blueprints, acces
                                 "Action",
                                 "Authority",
                                 "Assembly"
-                            ],
-                            correctIndex: 1
+                            ]
                         },
                         {
                             text: "Where is the Building Information Card (BIC) located?",
@@ -1203,8 +1232,7 @@ The FLSD serves as a liaison to provide building intelligence (blueprints, acces
                                 "Security Desk",
                                 "Fire Command Station",
                                 "Mechanical Room"
-                            ],
-                            correctIndex: 2
+                            ]
                         },
                         {
                             text: "In a non-fireproof building, what is the standard evacuation procedure for a fire alarm?",
@@ -1213,8 +1241,7 @@ The FLSD serves as a liaison to provide building intelligence (blueprints, acces
                                 "Shelter in Place",
                                 "In-Building Relocation",
                                 "Wait for instructions"
-                            ],
-                            correctIndex: 0
+                            ]
                         },
                         {
                             text: "Who is authorized to give the 'All Clear' signal after a fire incident?",
@@ -1223,8 +1250,7 @@ The FLSD serves as a liaison to provide building intelligence (blueprints, acces
                                 "The Building Manager",
                                 "The FDNY Incident Commander",
                                 "The Fire Warden"
-                            ],
-                            correctIndex: 2
+                            ]
                         }
                     ]
                 },
@@ -1294,6 +1320,16 @@ Please download the following documents for your records and future study for th
                 route: "/portal/exam",
                 content: {
                     description: "The official Skyline Safety Services Graduation Exam.",
+                    // SECURITY: no `correctIndex` on these questions - this is
+                    // the real proctored graduation exam, and this file ships
+                    // to the browser (see the note on `questions` above the
+                    // Module interface). The answer key for these 10
+                    // questions lives in lib/examAnswerKeys.ts
+                    // (EXAM_ANSWER_KEYS["f89-flsd"]), matched to this array
+                    // by index. If you reorder, add, or remove a question
+                    // here, update that array to match - app/api/exam/submit/route.ts
+                    // grades by index and will refuse to grade (500) if the
+                    // lengths don't line up, rather than silently mis-grade.
                     questions: [
                         {
                             text: "What is the primary responsibility of the Fire and Life Safety Director during a fire emergency?",
@@ -1302,8 +1338,7 @@ Please download the following documents for your records and future study for th
                                 "Report to the Fire Command Station and coordinate with FDNY",
                                 "Fight the fire with a portable extinguisher",
                                 "Call the building owner"
-                            ],
-                            correctIndex: 1
+                            ]
                         },
                         {
                             text: "When must the Fire and Life Safety Director be present in the building?",
@@ -1312,8 +1347,7 @@ Please download the following documents for your records and future study for th
                                 "Only during fire drills",
                                 "During regular business hours",
                                 "Whenever the building manager is away"
-                            ],
-                            correctIndex: 2
+                            ]
                         },
                         {
                             text: "Which of the following is NOT a component of the Fire Triangle (Tetrahedron)?",
@@ -1322,8 +1356,7 @@ Please download the following documents for your records and future study for th
                                 "Fuel",
                                 "Nitrogen",
                                 "Oxygen"
-                            ],
-                            correctIndex: 2
+                            ]
                         },
                         {
                             text: "What is the minimum passing score for this graduation exam?",
@@ -1332,8 +1365,7 @@ Please download the following documents for your records and future study for th
                                 "65%",
                                 "70%",
                                 "100%"
-                            ],
-                            correctIndex: 2
+                            ]
                         },
                         {
                             text: "Which class of standpipe system is designed for use by building occupants?",
@@ -1342,8 +1374,7 @@ Please download the following documents for your records and future study for th
                                 "Class II",
                                 "Class III",
                                 "Class IV"
-                            ],
-                            correctIndex: 1
+                            ]
                         },
                         {
                             text: "How often must the FLSD Certificate of Fitness be renewed?",
@@ -1352,8 +1383,7 @@ Please download the following documents for your records and future study for th
                                 "Every 3 years",
                                 "Every 5 years",
                                 "It does not expire"
-                            ],
-                            correctIndex: 1
+                            ]
                         },
                         {
                             text: "What does the 'A' in EAP stand for?",
@@ -1362,8 +1392,7 @@ Please download the following documents for your records and future study for th
                                 "Action",
                                 "Authority",
                                 "Assembly"
-                            ],
-                            correctIndex: 1
+                            ]
                         },
                         {
                             text: "Where is the Building Information Card (BIC) located?",
@@ -1372,8 +1401,7 @@ Please download the following documents for your records and future study for th
                                 "Security Desk",
                                 "Fire Command Station",
                                 "Mechanical Room"
-                            ],
-                            correctIndex: 2
+                            ]
                         },
                         {
                             text: "In a non-fireproof building, what is the standard evacuation procedure for a fire alarm?",
@@ -1382,8 +1410,7 @@ Please download the following documents for your records and future study for th
                                 "Shelter in Place",
                                 "In-Building Relocation",
                                 "Wait for instructions"
-                            ],
-                            correctIndex: 0
+                            ]
                         },
                         {
                             text: "Who is authorized to give the 'All Clear' signal after a fire incident?",
@@ -1392,8 +1419,7 @@ Please download the following documents for your records and future study for th
                                 "The Building Manager",
                                 "The FDNY Incident Commander",
                                 "The Fire Warden"
-                            ],
-                            correctIndex: 2
+                            ]
                         }
                     ]
                 },

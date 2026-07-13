@@ -8,19 +8,29 @@ import { clsx } from "clsx";
 interface Question {
     text: string;
     options: string[];
-    correctIndex: number;
+    correctIndex?: number;
 }
 
 interface QuizEditorProps {
     questions: Question[];
     onChange: (questions: Question[]) => void;
+    // When true, this editor is being used for the graduation exam module.
+    // The exam's correct-answer key is server-only (see lib/examAnswerKeys.ts)
+    // and is deliberately NOT part of this course's Firestore document (which
+    // is publicly readable - see firestore.rules), so this editor must not
+    // show or let an admin set `correctIndex` here - doing so would write it
+    // straight back into that public document the next time the course is
+    // saved. Question text/options are still fully editable either way.
+    lockAnswerKey?: boolean;
 }
 
-export function QuizEditor({ questions = [], onChange }: QuizEditorProps) {
+export function QuizEditor({ questions = [], onChange, lockAnswerKey = false }: QuizEditorProps) {
     const handleAddQuestion = () => {
         onChange([
             ...questions,
-            { text: "New Question", options: ["Option A", "Option B"], correctIndex: 0 }
+            lockAnswerKey
+                ? { text: "New Question", options: ["Option A", "Option B"] }
+                : { text: "New Question", options: ["Option A", "Option B"], correctIndex: 0 }
         ]);
     };
 
@@ -63,11 +73,19 @@ export function QuizEditor({ questions = [], onChange }: QuizEditorProps) {
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center">
-                <h4 className="text-white font-medium">Quiz Questions</h4>
+                <h4 className="text-white font-medium">{lockAnswerKey ? "Graduation Exam Questions" : "Quiz Questions"}</h4>
                 <Button size="sm" onClick={handleAddQuestion} variant="outline">
                     <Plus size={16} className="mr-2" /> Add Question
                 </Button>
             </div>
+
+            {lockAnswerKey && (
+                <p className="text-xs text-yellow-500/80 bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-2">
+                    You can edit question text and answer options here. The official answer key for the graduation exam
+                    is kept separately (server-only, not stored in this public course record) and isn&apos;t editable
+                    from this screen - contact your developer to update it.
+                </p>
+            )}
 
             {questions.map((q, qIndex) => (
                 <div key={qIndex} className="bg-navy-950/50 border border-white/10 rounded-xl p-4 space-y-4">
@@ -110,15 +128,21 @@ export function QuizEditor({ questions = [], onChange }: QuizEditorProps) {
                     <div className="ml-12 space-y-2">
                         {q.options.map((opt, oIndex) => (
                             <div key={oIndex} className="flex items-center gap-3">
-                                <button
-                                    onClick={() => handleUpdateQuestion(qIndex, "correctIndex", oIndex)}
-                                    className={clsx(
-                                        "shrink-0 hover:text-green-400 transition-colors",
-                                        q.correctIndex === oIndex ? "text-green-500" : "text-slate-600"
-                                    )}
-                                >
-                                    {q.correctIndex === oIndex ? <CheckCircle2 size={18} /> : <Circle size={18} />}
-                                </button>
+                                {lockAnswerKey ? (
+                                    <span className="shrink-0 text-slate-700" title="Answer key managed separately">
+                                        <Circle size={18} />
+                                    </span>
+                                ) : (
+                                    <button
+                                        onClick={() => handleUpdateQuestion(qIndex, "correctIndex", oIndex)}
+                                        className={clsx(
+                                            "shrink-0 hover:text-green-400 transition-colors",
+                                            q.correctIndex === oIndex ? "text-green-500" : "text-slate-600"
+                                        )}
+                                    >
+                                        {q.correctIndex === oIndex ? <CheckCircle2 size={18} /> : <Circle size={18} />}
+                                    </button>
+                                )}
                                 <input
                                     type="text"
                                     value={opt}

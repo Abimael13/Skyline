@@ -9,6 +9,7 @@ import {
     arrayUnion
 } from "firebase/firestore";
 import { COURSES, Course, mergeCoursesWithStatic } from "@/lib/courses";
+import { stripExamAnswerKeys } from "@/lib/adminUtils";
 import { User } from "firebase/auth";
 
 // Collection References
@@ -115,7 +116,13 @@ export async function updateCourseDates(courseId: string, dates: string[]) {
 export async function seedCourses() {
     try {
         for (const course of COURSES) {
-            await setDoc(doc(db, COURSES_COLLECTION, course.id), course);
+            // Defense-in-depth: strip any exam answer-key data before it can
+            // ever reach the publicly-readable `courses` collection. See
+            // lib/adminUtils.ts's stripExamAnswerKeys for why - the static
+            // COURSES data no longer carries this at all, but this call
+            // makes sure a future change to that data can't silently
+            // reintroduce the exposure via seeding.
+            await setDoc(doc(db, COURSES_COLLECTION, course.id), stripExamAnswerKeys(course));
         }
         console.log("Database seeded successfully.");
         return true;

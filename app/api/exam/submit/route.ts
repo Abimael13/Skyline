@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getAdminApp, verifyIdToken } from "@/lib/firebaseAdmin";
 import { COURSES } from "@/lib/courses";
+import { getExamAnswerKey } from "@/lib/examAnswerKeys";
 import { getExamAttemptEligibility, EXAM_INELIGIBLE_MESSAGES, ExamResultRecord, ExamIneligibleReason } from "@/lib/examEligibility";
 import { stopExamRoomRecording } from "@/lib/examRecording";
 
@@ -19,10 +20,13 @@ import { stopExamRoomRecording } from "@/lib/examRecording";
 //
 // This route is the fix: the client sends only its raw answer selections
 // (option index per question), never a score or pass/fail flag. The server
-// looks up the correct answer key from lib/courses.ts, grades independently,
-// and is the only writer of users/{uid}.examResults (via the Admin SDK,
-// which bypasses firestore.rules by design - same pattern as
-// app/api/admin/grade-exam/route.ts and app/api/auth/redeem-code/route.ts).
+// looks up the question bank from lib/courses.ts (text/options only - safe
+// to be public, needed to render the exam) and the correct-answer key from
+// lib/examAnswerKeys.ts (server-only - see that file's header for why it's
+// kept separate), grades independently, and is the only writer of
+// users/{uid}.examResults (via the Admin SDK, which bypasses firestore.rules
+// by design - same pattern as app/api/admin/grade-exam/route.ts and
+// app/api/auth/redeem-code/route.ts).
 //
 // This route also enforces the two-attempt cap (see lib/examEligibility.ts
 // for the full state machine): a student gets at most two attempts, ever.
@@ -34,15 +38,15 @@ import { stopExamRoomRecording } from "@/lib/examRecording";
 // open tabs) can't both read "attempt not yet used" and sneak in an extra
 // attempt.
 //
-// IMPORTANT CAVEAT (see report to owner): lib/courses.ts, including each
-// question's `correctIndex`, is imported directly into the client bundle by
-// ExamPortal.tsx to render the questions. That means the answer key is still
-// visible to anyone who inspects the JS bundle or React state in devtools,
-// even though grading itself now happens here on the server. This route
-// closes the "forge your own score" hole (the client can no longer just
-// assert a score/pass value), but it does NOT hide the answer key from a
-// determined student. See the written report for what a real fix for that
-// would require.
+// NOTE ON THE ANSWER-KEY FIX: lib/courses.ts is imported directly into the
+// client bundle by components/learning/ExamPortal.tsx to render question
+// text/options, and gets seeded into the publicly-readable Firestore
+// `courses` collection. As of this fix, lib/courses.ts's exam questions no
+// longer carry a `correctIndex` field at all - the answer key lives only in
+// lib/examAnswerKeys.ts, a server-only file never imported by any client
+// component. That closes the "read the answer key out of the JS bundle or
+// Firestore" hole, on top of the "forge your own score" hole this route
+// already closed (the client can no longer assert a score/pass value).
 // ---------------------------------------------------------------------------
 
 const PASSING_SCORE = 70;
@@ -79,7 +83,7 @@ export async function POST(req: Request) {
 
         const uid = decodedToken.uid;
 
-        // Look up the exam question bank + correct-answer key server-side.
+        // Look up the exam question bank (text/options, public) server-side.
         // The graduation exam lives on the course's "exam" type module
         // (see lib/courses.ts - same Module/content.questions shape used by
         // the Class 8 review quiz and QuizPlayer elsewhere in the app).
@@ -91,12 +95,30 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "No exam found for this course." }, { status: 404 });
         }
 
+        // Look up the correct-answer key from the server-only source (see
+        // lib/examAnswerKeys.ts). This is the ONLY place in the app that
+        // should ever read this file to compute a real, authoritative score.
+        const answerKey = getExamAnswerKey(courseId);
+        if (!answerKey || answerKey.length !== questions.length) {
+            // Fail closed: a missing or mismatched answer key means we
+            // cannot trust a graded score, so refuse to grade rather than
+            // silently mis-grade (e.g. every answer coming back "wrong").
+            console.error(
+                `Exam answer key missing or mismatched for course "${courseId}": ` +
+                `${questions.length} question(s), ${answerKey?.length ?? 0} answer(s) on file.`
+            );
+            return NextResponse.json(
+                { error: "This exam is not currently configured for grading. Please contact support." },
+                { status: 500 }
+            );
+        }
+
         // Independently compute the score from the answer key. Never trust
         // any score/pass value the client might send - only raw selections.
         let correctCount = 0;
-        questions.forEach((q, idx) => {
+        answerKey.forEach((correctIndex, idx) => {
             const submitted = answers[idx];
-            if (typeof submitted === "number" && submitted === q.correctIndex) {
+            if (typeof submitted === "number" && submitted === correctIndex) {
                 correctCount++;
             }
         });

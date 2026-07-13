@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Loader2, Plus, RefreshCw, AlertTriangle, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { Course } from "@/lib/courses";
+import { stripExamAnswerKeys } from "@/lib/adminUtils";
 import { useRouter } from "next/navigation";
 
 export default function AdminCoursesPage() {
@@ -42,7 +43,10 @@ export default function AdminCoursesPage() {
         setSeeding(true);
         try {
             for (const course of COURSES) {
-                await setDoc(doc(db, "courses", course.id), course);
+                // Defense-in-depth: strip any exam answer-key data before
+                // writing to the publicly-readable `courses` collection -
+                // see lib/adminUtils.ts's stripExamAnswerKeys.
+                await setDoc(doc(db, "courses", course.id), stripExamAnswerKeys(course));
             }
             alert("Database seeded successfully!");
             fetchCourses();

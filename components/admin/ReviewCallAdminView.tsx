@@ -39,6 +39,13 @@ export function ReviewCallAdminView({ bookingId }: { bookingId: string }) {
     const [now, setNow] = useState(new Date());
     const [revealedIdx, setRevealedIdx] = useState<Set<number>>(new Set());
 
+    // The graduation exam's correct-answer key. Not read from lib/courses.ts
+    // (the exam module no longer carries `correctIndex` there - see
+    // lib/examAnswerKeys.ts) - fetched from the admin-only
+    // /api/admin/exam-answer-key route so it never ships in this page's JS
+    // bundle to anyone who isn't a verified admin.
+    const [examAnswerKey, setExamAnswerKey] = useState<number[]>([]);
+
     useEffect(() => {
         const unsub = onSnapshot(
             doc(db, "reviewBookings", bookingId),
@@ -70,6 +77,29 @@ export function ReviewCallAdminView({ bookingId }: { bookingId: string }) {
         };
         fetchSubmission();
     }, [booking]);
+
+    // Fetch the graduation exam's correct-answer key from the admin-only API
+    // route (see app/api/admin/exam-answer-key/route.ts).
+    useEffect(() => {
+        if (!booking || !user) return;
+        const fetchAnswerKey = async () => {
+            try {
+                const idToken = await user.getIdToken();
+                const resp = await fetch(`/api/admin/exam-answer-key?courseId=${encodeURIComponent(booking.courseId)}`, {
+                    headers: { Authorization: `Bearer ${idToken}` },
+                });
+                const data = await resp.json();
+                if (resp.ok && Array.isArray(data.answerKey)) {
+                    setExamAnswerKey(data.answerKey);
+                } else {
+                    console.error("Failed to load exam answer key:", data);
+                }
+            } catch (error) {
+                console.error("Error fetching exam answer key:", error);
+            }
+        };
+        fetchAnswerKey();
+    }, [booking, user]);
 
     // Re-evaluate the join window periodically so this view reacts
     // automatically as the scheduled time approaches/passes, matching the
@@ -127,10 +157,11 @@ export function ReviewCallAdminView({ bookingId }: { bookingId: string }) {
     const courseTitle = course?.title || booking.courseId.toUpperCase();
     const examModule = course?.modules.find((m) => m.type === "exam");
     const questions = examModule?.content?.questions || [];
-    const missedQuestions = submission
+    const answerKeyReady = examAnswerKey.length === questions.length && questions.length > 0;
+    const missedQuestions = submission && answerKeyReady
         ? questions
-            .map((q, idx) => ({ q, idx, studentAnswer: submission.answers[idx] }))
-            .filter(({ q, studentAnswer }) => studentAnswer !== q.correctIndex)
+            .map((q, idx) => ({ q, idx, studentAnswer: submission.answers[idx], correctIndex: examAnswerKey[idx] }))
+            .filter(({ studentAnswer, correctIndex }) => studentAnswer !== correctIndex)
         : [];
 
     return (
@@ -216,18 +247,20 @@ export function ReviewCallAdminView({ bookingId }: { bookingId: string }) {
                         <p className="text-sm text-slate-500 italic">No submission record found for this attempt.</p>
                     ) : questions.length === 0 ? (
                         <p className="text-sm text-slate-500 italic">No question data available for this course.</p>
+                    ) : !answerKeyReady ? (
+                        <p className="text-sm text-slate-500 italic">Loading answer key...</p>
                     ) : missedQuestions.length === 0 ? (
                         <p className="text-sm text-slate-500 italic">No missed questions found on record for this attempt.</p>
                     ) : (
                         <div className="space-y-3">
-                            {missedQuestions.map(({ q, idx, studentAnswer }) => {
+                            {missedQuestions.map(({ q, idx, studentAnswer, correctIndex }) => {
                                 const isRevealed = revealedIdx.has(idx);
                                 return (
                                     <div key={idx} className="p-3 rounded-lg border border-red-500/20 bg-red-500/5 text-sm">
                                         <p className="font-medium text-white mb-2">Q{idx + 1}. {q.text}</p>
                                         <p className="text-red-300 mb-2">Answered: {q.options[studentAnswer] ?? "No answer"}</p>
                                         {isRevealed ? (
-                                            <p className="text-emerald-400">Correct: {q.options[q.correctIndex]}</p>
+                                            <p className="text-emerald-400">Correct: {q.options[correctIndex]}</p>
                                         ) : (
                                             <button
                                                 type="button"

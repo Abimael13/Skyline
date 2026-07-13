@@ -8,7 +8,12 @@ import { clsx } from "clsx";
 interface Question {
     text: string;
     options: string[];
-    correctIndex: number;
+    // Optional to match lib/courses.ts's Module.content.questions shape
+    // (the graduation exam's questions deliberately omit this - see
+    // lib/examAnswerKeys.ts). Real practice/review quiz data always
+    // includes it; if it's ever missing, no option is ever marked correct
+    // (safe default, never fabricates or reveals an answer).
+    correctIndex?: number;
 }
 
 export function QuizPlayer({ questions = [] }: { questions?: Question[] }) {

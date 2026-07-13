@@ -54,6 +54,13 @@ export default function StudentDetailPage(props: { params: Params }) {
     const [fetchingRecordingUrl, setFetchingRecordingUrl] = useState(false);
     const [recordingError, setRecordingError] = useState<string | null>(null);
 
+    // The graduation exam's correct-answer key. NOT read from lib/courses.ts
+    // (which no longer carries `correctIndex` for the exam module - see
+    // lib/examAnswerKeys.ts for why) - fetched from the admin-only
+    // /api/admin/exam-answer-key route instead, so it never ships in this
+    // page's JS bundle to anyone who isn't a verified admin.
+    const [examAnswerKey, setExamAnswerKey] = useState<number[]>([]);
+
     const handleViewRecording = async (attemptNumber: number) => {
         if (!auth.currentUser) return;
         setFetchingRecordingUrl(true);
@@ -126,6 +133,32 @@ export default function StudentDetailPage(props: { params: Params }) {
         fetchData();
     }, [studentId]);
 
+    // Fetch the graduation exam's correct-answer key from the admin-only API
+    // route (see app/api/admin/exam-answer-key/route.ts) - this is a separate
+    // effect (rather than folded into fetchData above) since it needs
+    // auth.currentUser's ID token, not just a Firestore doc read.
+    useEffect(() => {
+        const fetchAnswerKey = async () => {
+            if (!auth.currentUser) return;
+            try {
+                const idToken = await auth.currentUser.getIdToken();
+                const resp = await fetch(`/api/admin/exam-answer-key?courseId=f89-flsd`, {
+                    headers: { Authorization: `Bearer ${idToken}` },
+                });
+                const data = await resp.json();
+                if (resp.ok && Array.isArray(data.answerKey)) {
+                    setExamAnswerKey(data.answerKey);
+                } else {
+                    console.error("Failed to load exam answer key:", data);
+                }
+            } catch (error) {
+                console.error("Error fetching exam answer key:", error);
+            }
+        };
+
+        fetchAnswerKey();
+    }, [studentId]);
+
     // Approve a student's second and final attempt after reviewing a failed
     // first attempt. Calls the admin-only, server-verified route (which
     // re-checks eligibility itself and sends the retake-approved email) -
@@ -179,7 +212,9 @@ export default function StudentDetailPage(props: { params: Params }) {
         }
     };
 
-    // Get Exam Questions
+    // Get Exam Questions (text/options only - public/safe, no answer key
+    // here anymore; see examAnswerKey state above for the correct answers,
+    // fetched separately from the admin-only API route).
     const examModule = COURSES.find(c => c.id === "f89-flsd")?.modules.find(m => m.type === "exam");
     const questions = examModule?.content?.questions || [];
 
@@ -214,11 +249,17 @@ export default function StudentDetailPage(props: { params: Params }) {
                     onClick={async () => {
                         if (!confirm("Generate mock exam submission? This will overwrite existing data.")) return;
 
+                        if (examAnswerKey.length !== questions.length) {
+                            alert("Answer key hasn't loaded yet - try again in a moment.");
+                            return;
+                        }
+
                         try {
                             const mockAnswers: Record<number, number> = {};
                             questions.forEach((q, idx) => {
+                                const correctIndex = examAnswerKey[idx];
                                 // 70% chance of correct
-                                mockAnswers[idx] = Math.random() > 0.3 ? q.correctIndex : (q.correctIndex + 1) % q.options.length;
+                                mockAnswers[idx] = Math.random() > 0.3 ? correctIndex : (correctIndex + 1) % q.options.length;
                             });
 
                             const submissionData = {
@@ -277,9 +318,9 @@ export default function StudentDetailPage(props: { params: Params }) {
 
                         // Calculate score if submission exists for this course
                         let calculatedScore = 0;
-                        if (submission?.courseId === courseId) {
+                        if (submission?.courseId === courseId && examAnswerKey.length === questions.length) {
                             const correctCount = questions.reduce((acc, q, idx) => {
-                                return acc + (submission.answers[idx] === q.correctIndex ? 1 : 0);
+                                return acc + (submission.answers[idx] === examAnswerKey[idx] ? 1 : 0);
                             }, 0);
                             calculatedScore = Math.round((correctCount / questions.length) * 100);
                         }
@@ -447,9 +488,12 @@ export default function StudentDetailPage(props: { params: Params }) {
 
                                         {showExam && (
                                             <div className="space-y-4 mt-6 pt-6 border-t border-white/5">
-                                                {questions.map((q, idx) => {
+                                                {examAnswerKey.length !== questions.length ? (
+                                                    <p className="text-sm text-slate-500 italic">Loading answer key...</p>
+                                                ) : questions.map((q, idx) => {
                                                     const studentAnswer = submission.answers[idx];
-                                                    const isCorrect = studentAnswer === q.correctIndex;
+                                                    const correctIndex = examAnswerKey[idx];
+                                                    const isCorrect = studentAnswer === correctIndex;
 
                                                     return (
                                                         <div key={idx} className={`p-4 rounded-xl border ${isCorrect ? 'border-green-500/20 bg-green-500/5' : 'border-red-500/20 bg-red-500/5'}`}>
@@ -467,7 +511,7 @@ export default function StudentDetailPage(props: { params: Params }) {
                                                                         {!isCorrect && (
                                                                             <div className="p-2 rounded bg-white/5 text-slate-400 flex items-center gap-2">
                                                                                 <CheckCircle size={14} className="text-green-500" />
-                                                                                <span>Correct: {q.options[q.correctIndex]}</span>
+                                                                                <span>Correct: {q.options[correctIndex]}</span>
                                                                             </div>
                                                                         )}
                                                                     </div>

@@ -1,8 +1,8 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { doc, getDoc, setDoc } from "firebase/firestore";
-import { db, auth } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { Course, Module } from "@/lib/courses";
 import { Button } from "@/components/ui/Button";
 import { Loader2, ArrowLeft, BookOpen, Video, BrainCircuit, GraduationCap, ShieldCheck } from "lucide-react";
@@ -14,7 +14,6 @@ import { clsx } from "clsx";
 import { QuizPlayer } from "@/components/learning/QuizPlayer";
 import { FlashcardPlayer } from "@/components/learning/FlashcardPlayer";
 import { LiveClassPlayer } from "@/components/learning/LiveClassPlayer";
-import { SecureExamPlayer } from "@/components/learning/SecureExamPlayer";
 
 // Type props for Next.js App Router
 type Params = Promise<{ courseId: string; moduleId: string }>;
@@ -171,71 +170,6 @@ export default function LearningPage(props: { params: Params }) {
                             meetLink={currentModule.content?.meetLink || course.zoomLink}
                         />
                     </div>
-                )}
-
-                {currentModule.type === 'exam' && (
-                    <SecureExamPlayer
-                        module={currentModule}
-                        onComplete={async (score, complianceLogs) => {
-                            console.log("Exam Complete", score, complianceLogs);
-
-                            // Save the submission so staff can review/grade it.
-                            //
-                            // NOTE ON SCOPE: this component computes `score`
-                            // entirely in the browser, so it can never be
-                            // trusted as a final, official grade - a client
-                            // can report any score it likes. That's a known,
-                            // pre-existing issue with this exam flow (shared
-                            // with components/learning/ExamPortal.tsx) that
-                            // is planned to be addressed separately as part
-                            // of broader exam-integrity work (server-side
-                            // verification of answers, not just the score).
-                            //
-                            // For now we write to the SAME collection/shape
-                            // already used by ExamPortal.tsx and already
-                            // covered by firestore.rules
-                            // (users/{uid}/examSubmissions/{examId} - owner
-                            // may create their own, only an admin may
-                            // update/grade it). The previous code wrote to a
-                            // different, uncovered path
-                            // (users/{uid}/exam_results, auto-ID) that the
-                            // rules never granted access to, so every write
-                            // silently failed and the result was lost. We
-                            // record the client-reported score/status here
-                            // for visibility only - the authoritative pass/
-                            // fail record students and admins actually see
-                            // (app/portal/dashboard, app/admin/students/**)
-                            // is the `examResults` map on the user doc,
-                            // which is only ever set by the admin-only
-                            // /api/admin/grade-exam route.
-                            if (auth.currentUser) {
-                                try {
-                                    const passed = score >= 70;
-                                    // Doc ID is the courseId (not moduleId) to match the existing
-                                    // convention used by ExamPortal.tsx and the admin student
-                                    // detail page, which both key this subcollection by course id
-                                    // (e.g. "f89-flsd") so admins can actually find the submission.
-                                    await setDoc(doc(db, "users", auth.currentUser.uid, "examSubmissions", courseId), {
-                                        courseId: courseId,
-                                        moduleId: moduleId,
-                                        moduleTitle: currentModule.title,
-                                        submittedAt: new Date().toISOString(),
-                                        status: "submitted",
-                                        // Client-reported only - not an official grade until an
-                                        // admin reviews it via the grading tool.
-                                        clientReportedScore: score,
-                                        clientReportedPassed: passed,
-                                        complianceLogs: complianceLogs || []
-                                    });
-                                    console.log("Exam submission saved to Firestore");
-                                } catch (e) {
-                                    console.error("Failed to save exam submission", e);
-                                }
-                            } else {
-                                console.warn("Cannot save result: No user logged in");
-                            }
-                        }}
-                    />
                 )}
 
                 {currentModule.type === 'video' && currentModule.content?.videoUrl && (
