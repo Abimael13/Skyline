@@ -14,7 +14,8 @@ import {
     BookOpen,
     MonitorPlay,
     Building2,
-    MessageCircle
+    MessageCircle,
+    Video
 } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
 import { clsx } from "clsx";
@@ -25,6 +26,7 @@ const menuItems = [
     { icon: MonitorPlay, label: "Live Sessions", href: "/admin/live-sessions" },
     { icon: BookOpen, label: "Courses", href: "/admin/courses" },
     { icon: Calendar, label: "Schedule Manager", href: "/admin/schedule" },
+    { icon: Video, label: "Review Calls", href: "/admin/review-slots" },
     { icon: Users, label: "Students", href: "/admin/students" },
     { icon: MessageCircle, label: "Messages", href: "/admin/messages" },
     { icon: Building2, label: "Corporate Clients", href: "/admin/companies" },

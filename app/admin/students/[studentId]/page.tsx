@@ -3,7 +3,7 @@
 import { use, useEffect, useState } from "react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
-import { Loader2, Mail, User, Shield, BookOpen, ArrowLeft, CheckCircle, XCircle, FileText, ShieldCheck, Clock } from "lucide-react";
+import { Loader2, Mail, User, Shield, BookOpen, ArrowLeft, CheckCircle, XCircle, FileText, ShieldCheck, Clock, Video, PlayCircle } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { GradingForm } from "@/components/admin/GradingForm";
@@ -45,6 +45,35 @@ export default function StudentDetailPage(props: { params: Params }) {
     // examResults[courseId].retakeApprovalNotes.
     const [retakeNotes, setRetakeNotes] = useState<Record<string, string>>({});
 
+    // Exam proctoring recordings for this student's graduation exam
+    // (keyed by attempt number - see lib/examRecording.ts), read from
+    // exam_sessions/{studentId}_f89-flsd.recordings. Only the f89-flsd
+    // graduation exam has proctoring/recording in this app today - see
+    // components/learning/ExamPortal.tsx.
+    const [examRecordings, setExamRecordings] = useState<Record<string, { status: string; error?: string | null }>>({});
+    const [fetchingRecordingUrl, setFetchingRecordingUrl] = useState(false);
+    const [recordingError, setRecordingError] = useState<string | null>(null);
+
+    const handleViewRecording = async (attemptNumber: number) => {
+        if (!auth.currentUser) return;
+        setFetchingRecordingUrl(true);
+        setRecordingError(null);
+        try {
+            const idToken = await auth.currentUser.getIdToken();
+            const resp = await fetch(
+                `/api/admin/exam-recording/playback-url?sessionId=${studentId}_f89-flsd&attempt=${attemptNumber}`,
+                { headers: { Authorization: `Bearer ${idToken}` } }
+            );
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || "Failed to load the recording.");
+            window.open(data.url, "_blank", "noopener,noreferrer");
+        } catch (error: any) {
+            setRecordingError(error.message || "Failed to load the recording.");
+        } finally {
+            setFetchingRecordingUrl(false);
+        }
+    };
+
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -76,6 +105,15 @@ export default function StudentDetailPage(props: { params: Params }) {
 
                     if (subSnap.exists()) {
                         setSubmission(subSnap.data() as ExamSubmission);
+                    }
+
+                    // Exam proctoring recording metadata, if any (see
+                    // lib/examRecording.ts). Admin-only Firestore rules
+                    // already allow this read for a signed-in admin - see
+                    // firestore.rules on exam_sessions/{sessionId}.
+                    const sessionSnap = await getDoc(doc(db, "exam_sessions", `${studentId}_f89-flsd`));
+                    if (sessionSnap.exists()) {
+                        setExamRecordings(sessionSnap.data()?.recordings || {});
                     }
                 }
             } catch (error) {
@@ -275,6 +313,45 @@ export default function StudentDetailPage(props: { params: Params }) {
                                                 </a>
                                             </div>
                                         )}
+
+                                        {/* Exam proctoring recording (FDNY audit) - admin-only. See
+                                            lib/examRecording.ts. Only the f89-flsd graduation exam has
+                                            proctoring/recording today. */}
+                                        {courseId === "f89-flsd" && (() => {
+                                            const attempt = result.attempt ?? 1;
+                                            const recording = examRecordings[String(attempt)];
+                                            if (!recording) return null;
+                                            return (
+                                                <div className="mt-4 pt-4 border-t border-white/5">
+                                                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-400 uppercase mb-2">
+                                                        <Video size={14} /> Exam Recording (Attempt {attempt})
+                                                    </div>
+                                                    {recording.status === "completed" ? (
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            onClick={() => handleViewRecording(attempt)}
+                                                            disabled={fetchingRecordingUrl}
+                                                        >
+                                                            {fetchingRecordingUrl ? (
+                                                                <Loader2 className="animate-spin mr-2" size={14} />
+                                                            ) : (
+                                                                <PlayCircle className="mr-2" size={14} />
+                                                            )}
+                                                            View Recording
+                                                        </Button>
+                                                    ) : recording.status === "recording" || recording.status === "recording_unconfirmed" ? (
+                                                        <p className="text-xs text-red-400">Recording is still in progress.</p>
+                                                    ) : (
+                                                        <p className="text-xs text-yellow-400">
+                                                            No playable recording ({recording.status.replace("_", " ")}).
+                                                            {recording.error ? ` ${recording.error}` : ""}
+                                                        </p>
+                                                    )}
+                                                    {recordingError && <p className="text-xs text-red-400 mt-2">{recordingError}</p>}
+                                                </div>
+                                            );
+                                        })()}
 
                                         {/* Retake status / approval action - only relevant for a failed result. */}
                                         {result.status === 'failed' && (

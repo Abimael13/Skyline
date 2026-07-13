@@ -19,6 +19,23 @@ interface StudentSession {
     alerts: number;
     lastActive: any; // Timestamp
     feedUrl?: string;
+    // Keyed by attempt number ("1", "2") - see lib/examRecording.ts. Only
+    // the most recent attempt's entry is normally relevant while a session
+    // is active.
+    recordings?: Record<string, { status: string; error?: string | null }>;
+}
+
+// Best-effort recording status for whichever attempt is currently active -
+// there's no authoritative "current attempt" on the live session doc itself
+// (that only exists on the student's graded result), so this just shows the
+// highest attempt number recorded so far, which is always the current one
+// for an in-progress session.
+function currentRecordingStatus(session: StudentSession): { status: string; error?: string | null } | null {
+    if (!session.recordings) return null;
+    const attempts = Object.keys(session.recordings).map(Number).filter((n) => !Number.isNaN(n));
+    if (attempts.length === 0) return null;
+    const latest = Math.max(...attempts);
+    return session.recordings[String(latest)] || null;
 }
 
 export default function LiveProctorDashboard() {
@@ -111,6 +128,44 @@ export default function LiveProctorDashboard() {
         fetchToken();
     }, [selectedSession, user]);
 
+    // Best-effort calls to the recording start/stop routes (see
+    // lib/examRecording.ts and app/api/admin/exam-recording/*). Recording
+    // failures never block an admin action - a proctor must always be able
+    // to authorize, void, or force-submit an exam even if the recording
+    // infrastructure has a problem. Failures are logged and also recorded
+    // on the exam_sessions doc itself so they're visible in this dashboard.
+    const startExamRecordingFor = async (id: string) => {
+        if (!user) return;
+        try {
+            const idToken = await user.getIdToken();
+            const resp = await fetch("/api/admin/exam-recording/start", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+                body: JSON.stringify({ sessionId: id }),
+            });
+            const data = await resp.json();
+            if (!data.ok) {
+                console.error("Exam recording did not start:", data.error);
+            }
+        } catch (error) {
+            console.error("Failed to start exam recording:", error);
+        }
+    };
+
+    const stopExamRecordingFor = async (id: string, reason: string) => {
+        if (!user) return;
+        try {
+            const idToken = await user.getIdToken();
+            await fetch("/api/admin/exam-recording/stop", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+                body: JSON.stringify({ sessionId: id, reason }),
+            });
+        } catch (error) {
+            console.error("Failed to stop exam recording:", error);
+        }
+    };
+
     const handleVoidExam = async (id: string) => {
         if (confirm("Are you sure you want to VOID this exam session? This action cannot be undone.")) {
             try {
@@ -118,6 +173,7 @@ export default function LiveProctorDashboard() {
                     status: "voided"
                 });
                 setSelectedSession(null);
+                await stopExamRecordingFor(id, "exam_voided");
             } catch (e) {
                 console.error("Error voiding exam", e);
                 alert("Failed to void exam.");
@@ -132,6 +188,10 @@ export default function LiveProctorDashboard() {
                 status: "active"
             });
             alert("Session Authorized.");
+            // Start recording now that the exam has actually begun - see
+            // lib/examRecording.ts for what "FDNY audit recording" means in
+            // this app and its current limitations.
+            await startExamRecordingFor(id);
         } catch (error) {
             console.error(error);
         }
@@ -154,6 +214,7 @@ export default function LiveProctorDashboard() {
                     status: "submitted"
                 });
                 alert(`Exam submitted.`);
+                await stopExamRecordingFor(id, "force_submitted");
             } catch (e) {
                 console.error("Error submitting", e);
             }
@@ -306,6 +367,35 @@ export default function LiveProctorDashboard() {
                                 <div className="font-bold text-white">{selectedSession.alerts}</div>
                             </div>
                         </div>
+
+                        {(() => {
+                            const recording = currentRecordingStatus(selectedSession);
+                            if (!recording) return null;
+                            const label =
+                                recording.status === "recording" ? "Recording (FDNY audit)" :
+                                recording.status === "recording_unconfirmed" ? "Recording (status unconfirmed)" :
+                                recording.status === "completed" ? "Recording saved" :
+                                recording.status === "not_configured" ? "Recording not configured" :
+                                recording.status === "failed" ? "Recording failed" :
+                                recording.status === "stop_failed" ? "Recording may still be running" :
+                                recording.status;
+                            const colorClass =
+                                recording.status === "recording" ? "text-red-400" :
+                                recording.status === "recording_unconfirmed" ? "text-orange-400" :
+                                recording.status === "completed" ? "text-emerald-400" :
+                                "text-yellow-400";
+                            return (
+                                <div className={`bg-white/5 p-3 rounded-lg border border-white/10 text-xs ${colorClass}`}>
+                                    <div className="font-bold flex items-center gap-2">
+                                        {(recording.status === "recording" || recording.status === "recording_unconfirmed") && (
+                                            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                                        )}
+                                        {label}
+                                    </div>
+                                    {recording.error && <div className="text-slate-400 mt-1">{recording.error}</div>}
+                                </div>
+                            );
+                        })()}
 
                         <div className="space-y-2">
                             <h4 className="font-semibold text-white">Latest Logs</h4>

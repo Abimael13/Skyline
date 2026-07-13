@@ -10,6 +10,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { useEffect, useState } from "react";
 import { getExamAttemptEligibility, EXAM_INELIGIBLE_MESSAGES, ExamResultRecord } from "@/lib/examEligibility";
+import { ReviewCallBooking } from "@/components/dashboard/ReviewCallBooking";
 
 // Real, working contact info shown whenever a student is stuck waiting on
 // admin review or has run out of attempts - support@skylinesafetyservices.com
@@ -312,6 +313,24 @@ export default function Dashboard() {
                                                 </div>
                                             )}
                                         </div>
+
+                                        {/* Optional review call booking - a separate, optional teaching
+                                            conversation about what the student missed that has no effect
+                                            on whether/when a retake gets approved. New slots are only
+                                            offered while genuinely awaiting review (see
+                                            lib/examEligibility.ts); real eligibility is re-checked
+                                            server-side on every booking attempt
+                                            (app/api/review-calls/book/route.ts). Rendered for any failed
+                                            result (not just the awaiting-review branch) so a student who
+                                            already booked a call before being cleared for a retake (or
+                                            before exhausting attempts) can still see and join it - see
+                                            components/dashboard/ReviewCallBooking.tsx's canBookNew prop. */}
+                                        {result?.status === 'failed' && (
+                                            <ReviewCallBooking
+                                                courseId={course.id}
+                                                canBookNew={!eligibility.eligible && eligibility.reason === 'awaiting-review'}
+                                            />
+                                        )}
                                     </div>
                                 );
                             })}

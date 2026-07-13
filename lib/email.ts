@@ -1,5 +1,5 @@
 import { Resend } from "resend";
-import { generateWelcomeEmailHtml, generateExamPassEmailHtml, generateExamFailEmailHtml, generateRetakeApprovedEmailHtml, generateVerificationEmailHtml, generateContactEmailHtml } from "./email-templates";
+import { generateWelcomeEmailHtml, generateExamPassEmailHtml, generateExamFailEmailHtml, generateRetakeApprovedEmailHtml, generateVerificationEmailHtml, generateContactEmailHtml, generateReviewCallBookedEmailHtml, generateReviewCallCancelledEmailHtml } from "./email-templates";
 
 // Resend client - transactional email API, replaces the old Office365/nodemailer SMTP transport.
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -125,6 +125,76 @@ export async function sendRetakeApprovedEmail({ email, name, courseTitle }: Reta
         return true;
     } catch (error) {
         console.error("Error sending retake approved email:", error);
+        return false;
+    }
+}
+
+interface ReviewCallBookedEmailProps {
+    email: string;
+    name: string;
+    courseTitle: string;
+    startTime: string; // ISO
+    durationMinutes: number;
+    joinLink: string;
+}
+
+// Sent by app/api/review-calls/book/route.ts the moment a student books a
+// 1:1 review call slot with an admin. This is the real confirmation record
+// of the exact time the student committed to - there is no separate
+// calendar sync or reminder built yet (see report to owner).
+export async function sendReviewCallBookedEmail({ email, name, courseTitle, startTime, durationMinutes, joinLink }: ReviewCallBookedEmailProps) {
+    const htmlContent = generateReviewCallBookedEmailHtml({ name, courseTitle, startTime, durationMinutes, joinLink });
+
+    try {
+        const { error } = await resend.emails.send({
+            from: `Skyline Academics <${process.env.EMAIL_FROM}>`,
+            to: email,
+            subject: `Your Review Call is Confirmed - ${courseTitle}`,
+            html: htmlContent
+        });
+
+        if (error) {
+            console.error("Error sending review call booked email:", error);
+            return false;
+        }
+
+        console.log(`Review call confirmation email sent to ${email}`);
+        return true;
+    } catch (error) {
+        console.error("Error sending review call booked email:", error);
+        return false;
+    }
+}
+
+interface ReviewCallCancelledEmailProps {
+    email: string;
+    name: string;
+    courseTitle: string;
+    startTime: string; // ISO
+}
+
+// Sent by app/api/admin/review-calls/cancel/route.ts when an admin cancels
+// a student's confirmed review call.
+export async function sendReviewCallCancelledEmail({ email, name, courseTitle, startTime }: ReviewCallCancelledEmailProps) {
+    const htmlContent = generateReviewCallCancelledEmailHtml({ name, courseTitle, startTime });
+
+    try {
+        const { error } = await resend.emails.send({
+            from: `Skyline Academics <${process.env.EMAIL_FROM}>`,
+            to: email,
+            subject: `Your Review Call Was Cancelled - ${courseTitle}`,
+            html: htmlContent
+        });
+
+        if (error) {
+            console.error("Error sending review call cancelled email:", error);
+            return false;
+        }
+
+        console.log(`Review call cancellation email sent to ${email}`);
+        return true;
+    } catch (error) {
+        console.error("Error sending review call cancelled email:", error);
         return false;
     }
 }

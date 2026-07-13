@@ -3,6 +3,7 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getAdminApp, verifyIdToken } from "@/lib/firebaseAdmin";
 import { COURSES } from "@/lib/courses";
 import { getExamAttemptEligibility, EXAM_INELIGIBLE_MESSAGES, ExamResultRecord, ExamIneligibleReason } from "@/lib/examEligibility";
+import { stopExamRoomRecording } from "@/lib/examRecording";
 
 // ---------------------------------------------------------------------------
 // Submit + grade the proctored graduation exam.
@@ -223,6 +224,23 @@ export async function POST(req: Request) {
                 // The exam result itself is already saved.
                 console.error("Failed to close exam session:", err);
             });
+
+        // 4. Stop the proctoring room recording for this attempt, if one is
+        // running (see lib/examRecording.ts - recording is started by an
+        // admin authorizing the session in components/admin/LiveProctorDashboard.tsx).
+        // This runs with this route's own server-side LiveKit credentials,
+        // not the caller's identity, so it works regardless of whether the
+        // student or an admin ultimately triggered the submission. Best
+        // effort and never blocks the exam result from being returned - a
+        // student's score must never be held up by a recording-infrastructure
+        // problem.
+        await stopExamRoomRecording({
+            sessionId,
+            attemptNumber,
+            reason: "exam_submitted",
+        }).catch((err) => {
+            console.error("Failed to stop exam recording on submit:", err);
+        });
 
         return NextResponse.json({
             success: true,

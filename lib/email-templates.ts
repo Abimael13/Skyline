@@ -86,6 +86,23 @@ export function generateWelcomeEmailHtml({ name, courseTitle, startDate, portalL
     `;
 }
 
+// Formats an ISO timestamp in Eastern time (this business operates out of
+// NYC - see my-business context) so a review call time reads correctly for
+// students regardless of what timezone the server the email was generated
+// on happens to be running in.
+function formatEasternDateTime(iso: string): string {
+    const date = new Date(iso);
+    return date.toLocaleString('en-US', {
+        timeZone: 'America/New_York',
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZoneName: 'short',
+    });
+}
+
 interface BaseEmailProps {
     name: string;
     courseTitle: string;
@@ -254,6 +271,126 @@ export const generateRetakeApprovedEmailHtml = ({ name, courseTitle }: BaseEmail
             <center>
                 <a href="${portalLink}" class="button">Start Your Retake</a>
             </center>
+
+            <p>Best regards,<br/>Skyline Safety Services</p>
+        </div>
+        <div class="footer">
+            &copy; ${new Date().getFullYear()} Skyline Safety Services. All rights reserved.
+        </div>
+    </div>
+</body>
+</html>
+`;
+};
+
+interface ReviewCallBookedEmailProps {
+    name: string;
+    courseTitle: string;
+    startTime: string; // ISO
+    durationMinutes: number;
+    joinLink: string;
+}
+
+// Sent by app/api/review-calls/book/route.ts the moment a student books a
+// 1:1 review call with an admin to talk through what they missed on a
+// failed first attempt (see lib/reviewCalls.ts for the full data model).
+// This is framed as a teaching conversation, not a right/wrong answer key
+// handout, and it is explicitly separate from - and happens before - any
+// retake decision (app/api/admin/approve-retake/route.ts).
+export const generateReviewCallBookedEmailHtml = ({ name, courseTitle, startTime, durationMinutes, joinLink }: ReviewCallBookedEmailProps) => {
+    // `name` ultimately comes from the student's stored displayName (set at
+    // signup), so it is treated as user-controllable and escaped.
+    const safeName = escapeHtml(name);
+    const safeCourseTitle = escapeHtml(courseTitle);
+    const whenText = formatEasternDateTime(startTime);
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 8px; }
+        .header { background-color: #1e3a8a; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+        .content { padding: 30px 20px; }
+        .button { display: inline-block; padding: 12px 24px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; margin-top: 20px; }
+        .time-box { background-color: #eff6ff; border: 1px solid #bfdbfe; padding: 15px; border-radius: 8px; text-align: center; margin: 20px 0; }
+        .time-val { font-size: 20px; font-weight: bold; color: #1e3a8a; }
+        .footer { font-size: 12px; color: #666; text-align: center; margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Your Review Call is Confirmed</h1>
+        </div>
+        <div class="content">
+            <p>Dear ${safeName},</p>
+
+            <p>Your review call with our academics team is confirmed for <strong>${safeCourseTitle}</strong>. This is a chance to talk through what you missed on your first attempt, one on one, before any decision is made about a retake.</p>
+
+            <div class="time-box">
+                <p style="margin:0; font-size:14px; color:#1e3a8a;">Scheduled For</p>
+                <div class="time-val">${whenText}</div>
+                <p style="margin:8px 0 0; font-size:13px; color:#1e3a8a;">${durationMinutes} minutes</p>
+            </div>
+
+            <p>You can join a few minutes early using the link below. You'll need a working camera and microphone.</p>
+
+            <center>
+                <a href="${joinLink}" class="button">Join My Review Call</a>
+            </center>
+
+            <p>Need to reschedule? Reach out to our team and we'll help you find a new time.</p>
+
+            <p>Best regards,<br/>Skyline Safety Services</p>
+        </div>
+        <div class="footer">
+            &copy; ${new Date().getFullYear()} Skyline Safety Services. All rights reserved.
+        </div>
+    </div>
+</body>
+</html>
+`;
+};
+
+interface ReviewCallCancelledEmailProps {
+    name: string;
+    courseTitle: string;
+    startTime: string; // ISO
+}
+
+// Sent by app/api/admin/review-calls/cancel/route.ts when an admin cancels
+// a student's confirmed review call slot.
+export const generateReviewCallCancelledEmailHtml = ({ name, courseTitle, startTime }: ReviewCallCancelledEmailProps) => {
+    const safeName = escapeHtml(name);
+    const safeCourseTitle = escapeHtml(courseTitle);
+    const whenText = formatEasternDateTime(startTime);
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 8px; }
+        .header { background-color: #475569; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+        .content { padding: 30px 20px; }
+        .button { display: inline-block; padding: 12px 24px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; margin-top: 20px; }
+        .footer { font-size: 12px; color: #666; text-align: center; margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Your Review Call Was Cancelled</h1>
+        </div>
+        <div class="content">
+            <p>Dear ${safeName},</p>
+
+            <p>Your review call for <strong>${safeCourseTitle}</strong>, originally scheduled for <strong>${whenText}</strong>, has been cancelled by our team.</p>
+
+            <p>This does not change anything about your exam result - it's a separate, optional conversation. Log in to your student portal to book a new time if one is open, or reach out to our team directly.</p>
+
+            <a href="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/portal/dashboard" class="button">View My Dashboard</a>
 
             <p>Best regards,<br/>Skyline Safety Services</p>
         </div>

@@ -240,8 +240,11 @@ export function LiveClassPlayer({ sessionId, onComplete, meetLink, courseId, tit
                         </div>
 
                         <h1 className="text-3xl font-bold mb-2">{title || "Live Class Session"}</h1>
-                        <p className="text-slate-400 mb-8 max-w-sm mx-auto">
+                        <p className="text-slate-400 mb-4 max-w-sm mx-auto">
                             {description || "Instructor-led training session."}
+                        </p>
+                        <p className="text-xs text-slate-500 mb-8 max-w-sm mx-auto">
+                            This session is recorded via Zoom for training quality purposes.
                         </p>
                     </div>
 
@@ -298,6 +301,9 @@ export function LiveClassPlayer({ sessionId, onComplete, meetLink, courseId, tit
                             {waitingStatus === "rejected"
                                 ? <span className="text-red-400">Your previous ID was rejected. Please ensure your face is clearly visible.</span>
                                 : "Please present your government-issued ID to the camera."}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-3 max-w-sm mx-auto">
+                            A photo of your ID is captured and stored (not just used momentarily) so an instructor can verify your identity before you join. It is only visible to your account and to authorized Skyline Safety Services staff.
                         </p>
                     </div>
 

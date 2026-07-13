@@ -169,10 +169,34 @@ service cloud.firestore {
       allow create: if isSignedIn() &&
                        request.resource.data.userId == request.auth.uid &&
                        sessionId.split('_')[0] == request.auth.uid;
+
+      // Update: the owning student may update their own session doc
+      // (heartbeat, status transitions the client drives, etc.), but never
+      // the `recordings` field - that holds the FDNY audit recording's
+      // egress ID and storage path (see lib/examRecording.ts), and is only
+      // ever legitimately written by our own server code (the Admin SDK,
+      // via app/api/admin/exam-recording/*, app/api/exam/submit/route.ts,
+      // and app/api/livekit/egress-webhook/route.ts, all of which bypass
+      // these rules). Without this carve-out a student could use the client
+      // SDK to fabricate a fake "completed" recording, point it at another
+      // student's file, or erase the record entirely - a real audit-trail
+      // integrity hole for a proctored certification exam. Mirrors the same
+      // carve-out already applied to `examResults` on users/{uid} above.
       allow update: if isAdmin() ||
-                       (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow delete: if isAdmin() ||
-                       (isSignedIn() && resource.data.userId == request.auth.uid && resource.data.status == 'submitted');
+                       (isSignedIn() && resource.data.userId == request.auth.uid &&
+                        (!('recordings' in request.resource.data) ||
+                         request.resource.data.recordings == resource.data.recordings));
+
+      // Delete: admin-only. This used to also allow a student to delete
+      // their own submitted session doc, but no code in this app actually
+      // does that (nothing calls deleteDoc on exam_sessions), and now that
+      // this doc can carry the FDNY audit recording's Firestore pointer
+      // (`recordings`, see lib/examRecording.ts), letting the very student
+      // who was recorded delete that pointer themselves would defeat the
+      // point of keeping it. The GCS video file itself was never covered by
+      // this rule either way (Firestore rules don't touch Cloud Storage),
+      // but losing the pointer to it is still a real audit-trail problem.
+      allow delete: if isAdmin();
 
       // Proctor alert log for a session.
       match /alerts/{alertId} {
@@ -277,6 +301,71 @@ service cloud.firestore {
       allow update: if isAdmin() ||
                        (resource.data.clientToken is string &&
                         request.resource.data.clientToken == resource.data.clientToken);
+      allow delete: if isAdmin();
+    }
+
+    // -----------------------------------------------------------------
+    // reviewSlots/{slotId}  -  admin-created time slots for 1:1 post-exam
+    // review calls (see lib/reviewCalls.ts for the full data model)
+    // -----------------------------------------------------------------
+    // A signed-in student needs to see which times are currently open so
+    // they can pick one on their dashboard (components/dashboard/
+    // ReviewCallBooking.tsx) - there's nothing sensitive in a slot itself
+    // (just a course, a time, and a status). Reads are scoped to slots for a
+    // course the requesting user is actually enrolled in (checked against
+    // their own users/{uid}.enrolledCourses, the same field
+    // lib/AuthContext.tsx reads client-side) rather than left open to any
+    // signed-in user regardless of course - the only two client-side readers
+    // of this collection today (components/dashboard/ReviewCallBooking.tsx,
+    // scoped to one course; and the admin manager, which goes through
+    // isAdmin() below) both already only ever ask for slots on a course the
+    // caller is actually enrolled in, so this doesn't change legitimate
+    // behavior. Note: this costs one extra document read (the caller's own
+    // user doc) per matched slot on a list query - acceptable here given
+    // this collection is small, but noted since registration_codes above
+    // deliberately avoided the same pattern for a larger collection.
+    //
+    // This does NOT scope down to "only slots relevant to a student who
+    // failed attempt 1 and is awaiting review" - that would require the rule
+    // to inspect exam attempt/result state per course, which is a bigger
+    // data-model change than this fix covers. Enrollment is the practical
+    // boundary available today without that rework.
+    //
+    // Only an admin may create/edit/delete a slot directly, mirroring
+    // app/admin/schedule/page.tsx's `sessions` pattern exactly. The one
+    // exception - flipping an open slot to "booked" - never happens via a
+    // client write at all: it only happens inside the transaction in
+    // app/api/review-calls/book/route.ts, which uses the Admin SDK and so
+    // bypasses this rule entirely. That transaction (not this rule) is what
+    // actually makes booking race-safe; this rule only stops a student from
+    // writing to a slot directly.
+    match /reviewSlots/{slotId} {
+      allow read: if isAdmin() ||
+                     (isSignedIn() &&
+                      resource.data.courseId in
+                        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.enrolledCourses);
+      allow write: if isAdmin();
+    }
+
+    // -----------------------------------------------------------------
+    // reviewBookings/{bookingId}   (doc id == the reviewSlots doc id it
+    // books - a review call is strictly 1:1)
+    // -----------------------------------------------------------------
+    // A booking record contains the student's name/email and which failed
+    // attempt is being reviewed, so unlike reviewSlots this is NOT broadly
+    // readable - only the student who owns it, or an admin. Creation only
+    // ever happens inside the same booking transaction described above
+    // (Admin SDK, bypasses this rule) - a client can never create one
+    // directly, which is what stops a student from fabricating their own
+    // "confirmed" booking. Admins may update a booking's status
+    // (completed/no-show/cancelled) directly from the review-slots admin
+    // UI, the same pattern already used for session_attendance approvals
+    // above.
+    match /reviewBookings/{bookingId} {
+      allow read: if isAdmin() ||
+                     (isSignedIn() && resource.data.studentId == request.auth.uid);
+      allow create: if false;
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 

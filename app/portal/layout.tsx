@@ -10,7 +10,10 @@ function ProtectedLayout({ children }: { children: React.ReactNode }) {
     const { user, loading } = useAuth();
     const router = useRouter();
     const pathname = usePathname();
-    const isExamPage = pathname === "/portal/exam";
+    // Both the proctored exam and a live review call need the full browser
+    // window for their video UI, with no portal sidebar/header competing
+    // for space - same treatment, different routes.
+    const isExamPage = pathname === "/portal/exam" || pathname.startsWith("/portal/review-call");
 
     const [isMobile, setIsMobile] = useState(false);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);

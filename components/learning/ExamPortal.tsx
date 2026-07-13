@@ -407,6 +407,13 @@ export function ExamPortal() {
                                     </p>
                                 </div>
 
+                                <div className="flex items-start gap-2 text-xs text-slate-400 bg-navy-950 border border-white/5 rounded-lg p-3 mb-6">
+                                    <ShieldCheck size={16} className="text-red-400 shrink-0 mt-0.5" />
+                                    <p>
+                                        Once your proctor authorizes your session, exam sessions are recorded (video and audio) for FDNY audit and compliance purposes. Recordings are stored securely and are only ever accessible to Skyline Safety Services administrators.
+                                    </p>
+                                </div>
+
                                 <div className="space-y-4 mb-8">
                                     <StatusRow label="System Check" status={connectionState === "idle" ? "waiting" : "success"} />
                                     <StatusRow label="Secure Tunnel" status={["idle", "checking-system", "connecting"].includes(connectionState) ? "waiting" : "success"} />
