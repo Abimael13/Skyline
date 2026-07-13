@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { CourseModuleList } from "@/components/dashboard/CourseModuleList";
 import { BookOpen, ShoppingBag } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
-import { Course } from "@/lib/courses";
+import { Course, courseHasLiveClassContent } from "@/lib/courses";
 import { getCourseById } from "@/lib/db";
 import { LiveClassButton } from "@/components/dashboard/LiveClassButton";
 import Link from "next/link";
@@ -114,8 +114,10 @@ export default function MyCoursesPage() {
                                     <div className="px-3 py-1.5 rounded-full bg-green-500/10 text-green-400 text-xs font-medium border border-green-500/20">
                                         In Progress
                                     </div>
-                                    {/* Live Class Button Logic */}
-                                    {course.format === "Live + Online" && (() => {
+                                    {/* Live Class Button Logic: only show for courses that are
+                                        both scheduled as "Live + Online" AND actually contain a
+                                        real live-class module for the student to land on. */}
+                                    {course.format === "Live + Online" && courseHasLiveClassContent(course) && (() => {
                                         return (
                                             <LiveSessionStatus
                                                 courseId={course.id}
@@ -127,7 +129,13 @@ export default function MyCoursesPage() {
                             </div>
 
                             {/* Ensure modules exist before rendering list */}
+                            {/* Keyed on expandId so that navigating here with
+                                ?expand=<courseId> (e.g. from the "Join Live
+                                Class" button) remounts the list with the
+                                correct initial open/closed state, even when
+                                already on this page. */}
                             <CourseModuleList
+                                key={expandId || "default"}
                                 collapsible
                                 defaultOpen={expandId === course.id}
                                 modules={course.modules || []}
@@ -232,7 +240,10 @@ function LiveClassChecker({ courseId, enrolledSessions, zoomLink }: { courseId: 
     if (loading) return <div className="h-8 w-24 bg-slate-800/50 rounded animate-pulse" />;
 
     if (isLive) {
-        return <LiveClassButton zoomLink={zoomLink} sessionId={mySessionId || undefined} />;
+        // Only offer the real, ID-verified in-app flow if we actually matched
+        // a Firestore session record for this course (mySessionId). Otherwise
+        // fall back to the external Zoom link.
+        return <LiveClassButton zoomLink={zoomLink} courseId={mySessionId ? courseId : undefined} />;
     }
 
     if (mySessionId) {

@@ -61,6 +61,24 @@ export interface Course {
     }[];
 }
 
+// Recursively checks whether a course actually has any real live-class
+// content (a Module with type === "live-class") to send a student to. Some
+// courses are marked format: "Live + Online" but only contain generic
+// locked text stubs with no live-class module anywhere in their data (e.g.
+// N-85, Z-89 today). This is checked in addition to the format flag before
+// showing a "Join Live Class" button, so students are never routed to a
+// curriculum with nothing real to click into.
+function modulesContainLiveClass(modules: Module[] | undefined): boolean {
+    if (!modules || modules.length === 0) return false;
+    return modules.some(
+        (m) => m.type === "live-class" || modulesContainLiveClass(m.subModules)
+    );
+}
+
+export function courseHasLiveClassContent(course: Course): boolean {
+    return modulesContainLiveClass(course.modules);
+}
+
 // Helper to get "now" and "now + 2 hours" for demo purposes
 const now = new Date();
 
