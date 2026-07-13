@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { MonitorX, User, AlertTriangle, CheckCircle, Video, Play, Pause, XCircle, Search, Loader2 } from "lucide-react";
 import { collection, query, onSnapshot, doc, updateDoc, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { useAuth } from "@/lib/AuthContext";
 import { LiveKitRoom, VideoTrack, useTracks, RoomAudioRenderer, ParticipantLoop, ParticipantTile, useParticipants } from "@livekit/components-react";
 import { Track } from "livekit-client";
 import "@livekit/components-styles";
@@ -21,6 +22,7 @@ interface StudentSession {
 }
 
 export default function LiveProctorDashboard() {
+    const { user } = useAuth();
     const [sessions, setSessions] = useState<StudentSession[]>([]);
     const [selectedSession, setSelectedSession] = useState<StudentSession | null>(null);
     const [adminToken, setAdminToken] = useState<string>("");
@@ -89,10 +91,14 @@ export default function LiveProctorDashboard() {
         }
 
         const fetchToken = async () => {
+            if (!user) return;
             try {
                 // Room name logic must match ExamPortal: `exam-${userId}`
                 const roomName = `exam-${selectedSession.userId}`;
-                const resp = await fetch(`/api/livekit/token?room=${roomName}&username=AdminProctor&admin=true`);
+                const idToken = await user.getIdToken();
+                const resp = await fetch(`/api/livekit/token?room=${roomName}&username=AdminProctor&admin=true`, {
+                    headers: { Authorization: `Bearer ${idToken}` }
+                });
                 const data = await resp.json();
                 if (data.token) {
                     setAdminToken(data.token);
@@ -103,7 +109,7 @@ export default function LiveProctorDashboard() {
         };
 
         fetchToken();
-    }, [selectedSession]);
+    }, [selectedSession, user]);
 
     const handleVoidExam = async (id: string) => {
         if (confirm("Are you sure you want to VOID this exam session? This action cannot be undone.")) {
@@ -359,14 +365,19 @@ function SessionGridCard({
     onSuspend: (id: string) => void,
     onVoid: (id: string) => void
 }) {
+    const { user } = useAuth();
     const [token, setToken] = useState("");
 
     // Fetch token for this specific session
     useEffect(() => {
         const fetchToken = async () => {
+            if (!user) return;
             try {
                 const roomName = `exam-${session.userId}`;
-                const resp = await fetch(`/api/livekit/token?room=${roomName}&username=AdminProctor&admin=true`);
+                const idToken = await user.getIdToken();
+                const resp = await fetch(`/api/livekit/token?room=${roomName}&username=AdminProctor&admin=true`, {
+                    headers: { Authorization: `Bearer ${idToken}` }
+                });
                 const data = await resp.json();
                 if (data.token) {
                     setToken(data.token);
@@ -376,7 +387,7 @@ function SessionGridCard({
             }
         };
         fetchToken();
-    }, [session.userId]);
+    }, [session.userId, user]);
 
     return (
         <div

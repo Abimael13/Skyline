@@ -5,6 +5,17 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 
+// NOTE ON SECURITY: The check below (redirecting non-admins away) is a
+// client-side UX convenience only - it stops a logged-in student from
+// briefly seeing the admin UI flash on screen. It is NOT a security
+// boundary: anyone can disable JavaScript, call the admin API routes
+// directly, or edit their own `role` field in this same browser session,
+// since this check runs entirely in the browser. The real access control
+// lives server-side: `requireAdmin()` in lib/firebaseAdmin.ts (checked in
+// admin API routes) and the `isAdmin()` checks in firestore.rules (checked
+// by Firestore itself, using the `admin` custom claim on the user's auth
+// token, not this `role` value). Do not add more logic here expecting it to
+// keep anyone out - it can't.
 export default function AdminLayout({
     children,
 }: Readonly<{

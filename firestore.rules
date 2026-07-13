@@ -1,0 +1,307 @@
+rules_version = '2';
+
+// ---------------------------------------------------------------------------
+// Skyline Safety Services - Firestore Security Rules
+// ---------------------------------------------------------------------------
+// Read this like a bouncer's rulebook: every collection below is "deny by
+// default" unless a rule explicitly opens it up. Anything NOT listed here is
+// blocked automatically by the final catch-all block at the bottom.
+//
+// Two ways code can touch this database:
+//   1. The browser, using the client Firebase SDK (lib/firebase.ts). These
+//      requests ARE subject to the rules below.
+//   2. Our own server code, using the Firebase Admin SDK (lib/firebaseAdmin.ts,
+//      app/api/**). Admin SDK requests BYPASS these rules entirely - that's
+//      how Firebase is designed. So for data that should only ever be touched
+//      by our own servers, we set "allow read, write: if false" here, and the
+//      real protection is the server-side auth check in the API route itself
+//      (requireAdmin() / verifyIdToken() from lib/firebaseAdmin.ts).
+//
+// "Admin" here means the user's Firebase Auth ID token has a custom claim
+// admin == true. That claim can only be set by our own script
+// (scripts/set-admin-claim.ts) via the Admin SDK - a user can never set it on
+// themselves. This is different and safer than the old approach of trusting
+// a "role" field stored on the user's own Firestore document, because a
+// signed-in user can edit their own Firestore document with the client SDK.
+// ---------------------------------------------------------------------------
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: is the caller signed in?
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Helper: is the caller an admin? Checked via the Firebase Auth custom
+    // claim, NOT any field in Firestore. This is the only source of truth for
+    // "is this person staff" from a security standpoint.
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+
+    // Helper: is the caller the owner of this uid's data?
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // -----------------------------------------------------------------
+    // users/{uid}
+    // -----------------------------------------------------------------
+    // A signed-in student can read and update their own profile (progress,
+    // enrolled courses, settings, etc.) but can NEVER write the `role` field
+    // themselves - that field is a leftover, display-only copy for the UI
+    // (see lib/AuthContext.tsx) and is not used for any access decision
+    // anymore. Real admin status lives in the auth token custom claim above.
+    // Admins can read/write any user's document (needed for the admin
+    // student roster and grading tools in app/admin/students/**).
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+
+      // Create: a brand-new signup may create their own doc, but may not
+      // set role to "admin" themselves.
+      allow create: if isOwner(uid) &&
+                       (!('role' in request.resource.data) || request.resource.data.role != 'admin');
+
+      // Update: owner may update their own doc as long as `role` is not part
+      // of the change (or is unchanged from what's already stored), AND
+      // `examResults` is not part of the change either (or is unchanged).
+      // `examResults` holds pass/fail status, score, and the diploma link -
+      // the only legitimate writer is app/api/admin/grade-exam/route.ts,
+      // which uses the Admin SDK (bypasses these rules entirely) after its
+      // own requireAdmin() check. Without this carve-out, a signed-in
+      // student could call updateDoc() from their own browser and set
+      // examResults.{courseId} = { status: "passed", score: 100,
+      // diplomaUrl: "..." } directly - a straight-up certification forgery
+      // path for a fire/life-safety training business. Admins can still
+      // update anything (grading, enrollment fixes, etc.).
+      allow update: if isAdmin() ||
+                       (isOwner(uid) &&
+                        (!('role' in request.resource.data) ||
+                         request.resource.data.role == resource.data.role) &&
+                        (!('examResults' in request.resource.data) ||
+                         request.resource.data.examResults == resource.data.examResults));
+
+      // Deletion of a student account is an admin-only action (matches
+      // app/admin/students/page.tsx today, which currently does this via the
+      // client SDK - locking it down here is what actually enforces it).
+      allow delete: if isAdmin();
+
+      // Detailed exam submission records (users/{uid}/examSubmissions/{examId}).
+      // Students may create/read their own submission as they take the exam;
+      // only admins may grade (update) or delete it.
+      match /examSubmissions/{examId} {
+        allow read: if isOwner(uid) || isAdmin();
+        allow create: if isOwner(uid);
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // courses/{courseId}  -  public catalog content
+    // -----------------------------------------------------------------
+    // Anyone (including logged-out visitors) can read course info - it's
+    // public marketing/catalog data shown on the website. Only admins may
+    // create/edit/delete courses (the admin course editor writes this
+    // directly from the browser today, so this is the real enforcement).
+    match /courses/{courseId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // -----------------------------------------------------------------
+    // services/{slug}  -  public service/marketing pages
+    // -----------------------------------------------------------------
+    // Same idea as courses: public read, admin-only write.
+    match /services/{slug} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // -----------------------------------------------------------------
+    // sessions/{sessionId}  -  scheduled class sessions
+    // -----------------------------------------------------------------
+    // Session dates/capacity are shown publicly on the site (catalog,
+    // registration) so reads stay open. Enrollment COUNTS are only ever
+    // incremented through our server routes (api/register, api/webhooks/
+    // stripe) using the Admin SDK, and the live "start/stop class" toggle
+    // is an admin action (components/admin/AdminLiveSessions.tsx) - so
+    // writes are admin-only from the client. Server routes bypass this rule
+    // anyway via the Admin SDK.
+    match /sessions/{sessionId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // -----------------------------------------------------------------
+    // session_attendance/{attendanceId}   (doc id = "{uid}_{sessionId}")
+    // -----------------------------------------------------------------
+    // Students submit their own ID-verification photo/status when joining a
+    // live class (components/learning/LiveClassPlayer.tsx) and need to read
+    // their own record to see if they've been approved. Only admins can
+    // approve/reject (components/admin/AdminLiveSessions.tsx).
+    match /session_attendance/{attendanceId} {
+      allow read: if isAdmin() ||
+                     (isSignedIn() && attendanceId == request.auth.uid + '_' + resource.data.sessionId);
+      allow create: if isSignedIn() &&
+                       request.resource.data.userId == request.auth.uid &&
+                       attendanceId == request.auth.uid + '_' + request.resource.data.sessionId;
+      // Students may re-submit their own pending request (e.g. after a
+      // rejection), but only admins can move status to approved/rejected.
+      allow update: if isAdmin() ||
+                       (isSignedIn() &&
+                        resource.data.userId == request.auth.uid &&
+                        request.resource.data.status == 'pending');
+      allow delete: if isAdmin();
+    }
+
+    // -----------------------------------------------------------------
+    // exam_sessions/{sessionId}  -  live proctoring state for the final exam
+    // -----------------------------------------------------------------
+    // The student's own browser writes heartbeat/status updates while taking
+    // the proctored exam (components/learning/ExamPortal.tsx), and the admin
+    // proctoring dashboard needs to read/update every session
+    // (components/admin/LiveProctorDashboard.tsx). We scope student access to
+    // their own session doc (doc id starts with their uid).
+    match /exam_sessions/{sessionId} {
+      allow read: if isAdmin() ||
+                     (isSignedIn() && sessionId.split('_')[0] == request.auth.uid);
+      allow create: if isSignedIn() &&
+                       request.resource.data.userId == request.auth.uid &&
+                       sessionId.split('_')[0] == request.auth.uid;
+      allow update: if isAdmin() ||
+                       (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin() ||
+                       (isSignedIn() && resource.data.userId == request.auth.uid && resource.data.status == 'submitted');
+
+      // Proctor alert log for a session.
+      match /alerts/{alertId} {
+        allow read: if isAdmin();
+        allow create: if isSignedIn() && get(/databases/$(database)/documents/exam_sessions/$(sessionId)).data.userId == request.auth.uid;
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // registration_codes/{code}  -  corporate enrollment codes
+    // -----------------------------------------------------------------
+    // A prospective signee needs to READ a single code by its exact ID for
+    // a fast client-side validity check during signup (app/signup/page.tsx),
+    // so `get` stays open. Codes are only ever CREATED by the admin API
+    // route (app/api/corporate/generate-codes/route.ts, Admin SDK - bypasses
+    // this rule), never directly from the browser, so client create is
+    // blocked entirely.
+    //
+    // Redeeming a code (marking it "used") is now ALSO admin-SDK-only, done
+    // via app/api/auth/redeem-code/route.ts in one atomic transaction that
+    // marks the code used AND increments the company's seatsUsed together.
+    // We used to allow a signed-in user to flip status -> used directly from
+    // the browser, but that write was completely independent from the
+    // seatsUsed increment on companies/{companyId} below - a user could
+    // redeem a code without the seat count ever moving, bypassing the seat
+    // cap. Moving both into a single server-side transaction is the actual
+    // fix; the client can no longer write either field directly.
+    // A corporate manager also needs to LIST the codes belonging to their
+    // own company (app/corporate/dashboard/page.tsx), but must never see
+    // another company's codes. Each code doc carries a denormalized
+    // `companyManagerUid` field, set once at creation time in
+    // app/api/corporate/generate-codes/route.ts from the company's
+    // managerUid at that moment. We check that field directly here instead
+    // of doing a cross-document get(/databases/.../companies/$(companyId))
+    // for every doc in the query result set - a rule-side get() is charged
+    // and evaluated per matched document, so for a "list all codes for this
+    // company" query that would mean one extra document read per code
+    // returned, on every dashboard load. A denormalized field is a single
+    // cheap equality check per doc instead. The tradeoff: if a company's
+    // managerUid is ever reassigned, previously-generated codes keep the
+    // OLD manager's uid unless a migration script updates them - acceptable
+    // here since manager reassignment is rare and admin-driven, and admins
+    // can always see everything regardless.
+    match /registration_codes/{code} {
+      allow get: if true;
+      allow list: if isAdmin() ||
+                     (isSignedIn() && resource.data.companyManagerUid == request.auth.uid);
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // -----------------------------------------------------------------
+    // companies/{companyId}  -  corporate accounts / seat tracking
+    // -----------------------------------------------------------------
+    // A prospective signee needs to look up a company by its legacy access
+    // code (app/signup/page.tsx queries `where code == ...`), so reads stay
+    // open. Seat counts and company creation/management are admin-only
+    // (app/admin/companies/page.tsx).
+    //
+    // seatsUsed increments are ALSO admin-SDK-only now (see
+    // app/api/auth/redeem-code/route.ts) - both the legacy shared-code path
+    // and the unique registration-code path redeem through that one server
+    // transaction, so there is no longer any legitimate reason for a signed-
+    // in client to write seatsUsed directly. Previously we allowed a
+    // signed-in user to bump seatsUsed by exactly 1 themselves, but that
+    // write happened as a totally separate client call from marking a code
+    // "used" above, so the two could get out of sync (or be skipped
+    // independently) - see registration_codes note above for the full
+    // reasoning.
+    match /companies/{companyId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // -----------------------------------------------------------------
+    // conversations/{conversationId}  -  public website live-chat widget
+    // -----------------------------------------------------------------
+    // This is an anonymous, pre-login support chat (components/ui/
+    // ChatWidget.tsx), so there is no Firebase Auth identity to bind a
+    // conversation to. Instead, every conversation stores a random
+    // high-entropy `clientToken` (crypto.randomUUID(), generated in the
+    // browser and kept in localStorage alongside the existing
+    // chat_conversation_id). A visitor may only continue a thread if they
+    // echo back the exact same clientToken already stored on the document -
+    // this is the real binding that replaces "is this the same visitor".
+    // Only admins can browse/list every conversation in the inbox
+    // (app/admin/messages/page.tsx) or update one without knowing its token.
+    match /conversations/{conversationId} {
+      allow get: if true;
+      allow list: if isAdmin();
+      // A new conversation must be created with a clientToken already set
+      // (a non-empty string) so there is something to check on future
+      // updates. Without this, a conversation could be created without a
+      // token and then updated by anyone.
+      allow create: if isAdmin() ||
+                       (request.resource.data.clientToken is string &&
+                        request.resource.data.clientToken.size() >= 20);
+      // Update requires proving you know the existing clientToken by
+      // sending it back unchanged. An admin can update anything (status,
+      // replies, archiving) regardless of token.
+      allow update: if isAdmin() ||
+                       (resource.data.clientToken is string &&
+                        request.resource.data.clientToken == resource.data.clientToken);
+      allow delete: if isAdmin();
+    }
+
+    // -----------------------------------------------------------------
+    // verification_codes/{codeId}  -  legacy client-side 2FA collection
+    // -----------------------------------------------------------------
+    // As of this security fix, 2FA codes are generated, stored, and checked
+    // entirely by our server routes (app/api/auth/2fa/**) using the Admin
+    // SDK, which bypasses these rules. There is no legitimate reason for the
+    // browser to read or write this collection directly, so it's fully
+    // closed off. (Any old docs here from before this fix can be ignored/
+    // cleaned up - they're no longer read by the app.)
+    match /verification_codes/{codeId} {
+      allow read, write: if false;
+    }
+
+    // -----------------------------------------------------------------
+    // Everything else: server-only collections
+    // -----------------------------------------------------------------
+    // Anything not explicitly matched above is denied by default thanks to
+    // Firestore's "deny unless allowed" model, but we spell it out for
+    // clarity for collections we know exist only for internal/admin
+    // tooling and are never touched by the client SDK.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

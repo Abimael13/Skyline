@@ -32,6 +32,8 @@ export function ExamPortal() {
     const [submitting, setSubmitting] = useState(false);
     const [submitted, setSubmitted] = useState(false);
     const [isVoided, setIsVoided] = useState(false);
+    const [result, setResult] = useState<{ score: number; passed: boolean; diplomaUrl: string | null } | null>(null);
+    const [submitError, setSubmitError] = useState<string | null>(null);
     const sessionIdRef = useRef<string | null>(null);
 
     // Initial Setup: Session ID
@@ -190,9 +192,13 @@ export function ExamPortal() {
                     alerts: 0
                 }, { merge: true });
 
-                // Fetch LiveKit Token
+                // Fetch LiveKit Token (requires a verified ID token - the
+                // server checks this room belongs to this user's exam session)
                 const roomName = `exam-${user.uid}`;
-                const resp = await fetch(`/api/livekit/token?room=${roomName}&username=${encodeURIComponent(user.displayName || user.email || "Student")}`);
+                const idToken = await user.getIdToken();
+                const resp = await fetch(`/api/livekit/token?room=${roomName}&username=${encodeURIComponent(user.displayName || user.email || "Student")}`, {
+                    headers: { Authorization: `Bearer ${idToken}` }
+                });
                 const data = await resp.json();
                 if (data.token) {
                     setToken(data.token);
@@ -232,54 +238,40 @@ export function ExamPortal() {
     const submitExam = async () => {
         if (!user || !sessionIdRef.current) return;
         setSubmitting(true);
+        setSubmitError(null);
 
         try {
-            // Calculate Score
-            let correctCount = 0;
-            questions.forEach((q, idx) => {
-                if (answers[idx] === q.correctIndex) {
-                    correctCount++;
-                }
+            // Grading now happens server-side (app/api/exam/submit/route.ts).
+            // We only send the student's raw answer selections - never a
+            // pre-computed score or pass/fail flag - so the server is the
+            // sole source of truth for the result. This also routes around
+            // the firestore.rules block on client writes to
+            // users/{uid}.examResults, which exists specifically to stop a
+            // student from writing their own passing grade.
+            const idToken = await user.getIdToken();
+            const response = await fetch("/api/exam/submit", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${idToken}`,
+                },
+                body: JSON.stringify({
+                    courseId: "f89-flsd",
+                    answers,
+                }),
             });
 
-            const score = Math.round((correctCount / questions.length) * 100);
-            const passed = score >= 70;
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || "Failed to submit exam.");
+            }
 
-            const submissionData = {
-                courseId: "f89-flsd",
-                submittedAt: new Date().toISOString(),
-                answers,
-                totalQuestions: questions.length,
-                status: "submitted",
-                score,
-                passed
-            };
-
-            // 1. Save detailed submission
-            await setDoc(doc(db, "users", user.uid, "examSubmissions", "f89-flsd"), submissionData);
-
-            // 2. Update Student Profile with Grade
-            await setDoc(doc(db, "users", user.uid), {
-                examResults: {
-                    "f89-flsd": {
-                        status: passed ? "passed" : "failed",
-                        score: score,
-                        gradedAt: new Date().toISOString(),
-                        diplomaUrl: passed ? "/certificates/f89-placeholder.pdf" : null
-                    }
-                }
-            }, { merge: true });
-
-            // 3. Update Session Status
-            await updateDoc(doc(db, "exam_sessions", sessionIdRef.current), {
-                status: "completed",
-                endTime: serverTimestamp()
-            });
-
+            setResult({ score: data.score, passed: data.passed, diplomaUrl: data.diplomaUrl });
             setSubmitted(true);
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error submitting exam:", error);
-            alert("Failed to submit exam. Please try again.");
+            setSubmitError(error.message || "Failed to submit exam. Please try again.");
+            alert(error.message || "Failed to submit exam. Please try again.");
         } finally {
             setSubmitting(false);
         }
@@ -308,12 +300,23 @@ export function ExamPortal() {
         return (
             <div className="min-h-screen bg-navy-950 flex items-center justify-center p-8 text-center text-white">
                 <div className="max-w-md bg-navy-900 border border-white/10 p-8 rounded-3xl">
-                    <div className="w-20 h-20 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-6 text-green-500">
+                    <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${result?.passed ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500"}`}>
                         <CheckCircle size={40} />
                     </div>
-                    <h2 className="text-3xl font-bold mb-4">Exam Submitted</h2>
+                    <h2 className="text-3xl font-bold mb-4">
+                        {result ? (result.passed ? "Congratulations, You Passed!" : "Exam Submitted") : "Exam Submitted"}
+                    </h2>
+                    {result && (
+                        <p className="text-5xl font-black mb-4 font-mono">
+                            {result.score}<span className="text-2xl text-slate-500">%</span>
+                        </p>
+                    )}
                     <p className="text-slate-400 mb-8">
-                        Your exam has been securely transmitted to our grading team. You will be notified via email once your results are validated.
+                        {result
+                            ? result.passed
+                                ? "Your official diploma is available in your Documents section."
+                                : "You did not meet the minimum passing score of 70%. Please contact us about retaking the exam."
+                            : "Your exam has been securely transmitted to our grading team. You will be notified via email once your results are validated."}
                     </p>
                     <Button onClick={() => router.push("/portal/dashboard")} className="w-full">
                         Return to Dashboard
@@ -489,6 +492,12 @@ export function ExamPortal() {
                                 <h3 className="text-2xl font-bold text-white mb-8 leading-snug">
                                     {questions[currentQuestion]?.text}
                                 </h3>
+
+                                {submitError && (
+                                    <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                                        {submitError}
+                                    </div>
+                                )}
 
                                 <div className="space-y-4 mb-8">
                                     {questions[currentQuestion]?.options.map((option, idx) => (

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import crypto from "crypto";
+import { getFirestore } from "firebase-admin/firestore";
+import { getAdminApp } from "@/lib/firebaseAdmin";
 import { sendVerificationEmail } from "@/lib/email";
 
 export async function POST(req: Request) {
@@ -11,26 +12,23 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Email is required" }, { status: 400 });
         }
 
-        // Generate 6-digit code
-        // Generate 6-digit code
-        const code = "123456"; // FIXED FOR TESTING
+        // Cryptographically random 6-digit code (not the old hardcoded "123456").
+        const code = crypto.randomInt(100000, 1000000).toString();
 
-        // Expire in 15 minutes
+        // Expire in 10 minutes
         const expiresAt = new Date();
-        expiresAt.setMinutes(expiresAt.getMinutes() + 15);
+        expiresAt.setMinutes(expiresAt.getMinutes() + 10);
 
-        await addDoc(collection(db, "verification_codes"), {
+        // Stored via the Admin SDK so it is not client-writable/readable -
+        // the browser never sees this document.
+        const adminDb = getFirestore(getAdminApp());
+        await adminDb.collection("verification_codes").doc(email).set({
             email,
             code,
-            expiresAt,
-            type: 'email_signup',
-            createdAt: serverTimestamp()
+            expiresAt: expiresAt.toISOString(),
+            type: "email_signup",
+            createdAt: new Date().toISOString(),
         });
-
-        // DEV: Log code to console for easier testing
-        console.log("------------------------------------------------");
-        console.log(`[DEV] Verification Code for ${email}: ${code}`);
-        console.log("------------------------------------------------");
 
         const emailSent = await sendVerificationEmail(email, code);
 

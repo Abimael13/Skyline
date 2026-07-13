@@ -40,9 +40,13 @@ export function PaymentModal({ isOpen, onClose, courseTitle, courseId, price }: 
         setLoading(true);
 
         try {
+            const idToken = await user.getIdToken();
             const res = await fetch("/api/checkout", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${idToken}`,
+                },
                 body: JSON.stringify({
                     courseId: courseId,
                     userId: user.uid,

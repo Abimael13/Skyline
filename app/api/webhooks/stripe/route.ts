@@ -28,7 +28,12 @@ export async function POST(req: Request) {
     if (event.type === "checkout.session.completed") {
         const session = event.data.object as Stripe.Checkout.Session;
 
-        // Extract Metadata
+        // Extract Metadata. `userId` is trustworthy here because
+        // app/api/checkout/route.ts now only ever sets it from a verified
+        // Firebase ID token at checkout time (never from client input), and
+        // this event itself is verified above via the Stripe webhook
+        // signature - so both the transport (Stripe) and the origin
+        // (our checkout route) of this value are authenticated.
         const { userId, courseId, seats, userName } = session.metadata || {};
 
         if (userId && courseId) {

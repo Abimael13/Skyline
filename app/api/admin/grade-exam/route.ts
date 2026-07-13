@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
-import { doc, updateDoc, getDoc, setDoc } from "firebase/firestore";
+import { getFirestore } from "firebase-admin/firestore";
+import { getAdminApp, requireAdmin } from "@/lib/firebaseAdmin";
 import { sendExamResultEmail } from "@/lib/email";
 
 export async function POST(req: Request) {
+    try {
+        await requireAdmin(req);
+    } catch (error: any) {
+        return NextResponse.json({ error: error.message || "Unauthorized" }, { status: 403 });
+    }
+
     try {
         const body = await req.json();
         const { studentId, courseId, passed, score, diplomaUrl, feedback } = body;
@@ -12,22 +18,31 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
         }
 
-        // 1. Fetch User Data to get email
-        const userRef = doc(db, "users", studentId);
-        const userSnap = await getDoc(userRef);
+        // This route is admin-only (requireAdmin() above), so all Firestore
+        // access here goes through the Admin SDK, which bypasses
+        // firestore.rules entirely by design - that's correct since the real
+        // authorization check already happened above. Do NOT switch this back
+        // to the client SDK (lib/firebase.ts); an unauthenticated client SDK
+        // connection would be rejected by firestore.rules in production even
+        // though requireAdmin() already verified the caller.
+        const adminDb = getFirestore(getAdminApp());
 
-        if (!userSnap.exists()) {
+        // 1. Fetch User Data to get email
+        const userRef = adminDb.collection("users").doc(studentId);
+        const userSnap = await userRef.get();
+
+        if (!userSnap.exists) {
             return NextResponse.json({ error: "Student not found" }, { status: 404 });
         }
 
-        const userData = userSnap.data();
+        const userData = userSnap.data()!;
         const studentEmail = userData.email;
         const studentName = userData.displayName || "Student";
 
         // 2. Fetch Course Data to get title
-        const courseRef = doc(db, "courses", courseId);
-        const courseSnap = await getDoc(courseRef);
-        const courseTitle = courseSnap.exists() ? courseSnap.data().title : "Course Exam";
+        const courseRef = adminDb.collection("courses").doc(courseId);
+        const courseSnap = await courseRef.get();
+        const courseTitle = courseSnap.exists ? courseSnap.data()!.title : "Course Exam";
 
         // 3. Update User Record with Exam Result
         // We'll store this in an 'examResults' map keyed by courseId for easy access
@@ -45,7 +60,7 @@ export async function POST(req: Request) {
             [`examResults.${courseId}`]: examResultData
         };
 
-        await updateDoc(userRef, updateData);
+        await userRef.update(updateData);
 
         // 4. Send Email
         const retakeDate = new Date();

@@ -27,6 +27,7 @@ export function ChatWidget() {
     ]);
     const [inputValue, setInputValue] = useState("");
     const [conversationId, setConversationId] = useState<string | null>(null);
+    const [clientToken, setClientToken] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // Scroll to bottom
@@ -38,11 +39,15 @@ export function ChatWidget() {
         scrollToBottom();
     }, [messages, isOpen]);
 
-    // Load conversation from local storage or create new listener
+    // Load conversation (and its access token) from local storage.
     useEffect(() => {
         const storedId = localStorage.getItem("chat_conversation_id");
+        const storedToken = localStorage.getItem("chat_client_token");
         if (storedId) {
             setConversationId(storedId);
+        }
+        if (storedToken) {
+            setClientToken(storedToken);
         }
     }, []);
 
@@ -74,14 +79,31 @@ export function ChatWidget() {
 
         try {
             let currentId = conversationId;
+            let currentToken = clientToken;
+
+            // Guard against a stale/partial localStorage state (e.g. an id
+            // saved before this fix shipped, with no matching token) - if we
+            // don't have a token to prove ownership of the existing id,
+            // start a brand-new conversation instead of sending a write the
+            // security rules will reject.
+            if (currentId && !currentToken) {
+                currentId = null;
+            }
 
             if (!currentId) {
-                // Create new conversation
+                // Create new conversation. A random, high-entropy token is
+                // generated and stored on the document (and in this
+                // visitor's localStorage) - it's the "ticket number" that
+                // firestore.rules requires us to echo back on every future
+                // update to this conversation, so no other visitor/client
+                // can hijack or overwrite this thread by guessing the id.
+                currentToken = crypto.randomUUID();
                 const docRef = await addDoc(collection(db, "conversations"), {
                     createdAt: serverTimestamp(),
                     updatedAt: serverTimestamp(),
                     status: 'new',
                     userEmail: '',
+                    clientToken: currentToken,
                     messages: [
                         { text: "Hi there! 👋 How can we help you with your fire safety training today?", isBot: true, timestamp: Date.now() },
                         newMessage
@@ -90,15 +112,20 @@ export function ChatWidget() {
                 });
                 currentId = docRef.id;
                 setConversationId(currentId);
+                setClientToken(currentToken);
                 localStorage.setItem("chat_conversation_id", currentId);
+                localStorage.setItem("chat_client_token", currentToken);
             } else {
-                // Update existing
+                // Update existing. Must include the same clientToken the
+                // document was created with, or the security rules reject
+                // the write.
                 const docRef = doc(db, "conversations", currentId);
                 await updateDoc(docRef, {
                     messages: arrayUnion(newMessage),
                     lastMessage: userText,
                     updatedAt: serverTimestamp(),
-                    status: 'new' // Re-open if it was archived
+                    status: 'new', // Re-open if it was archived
+                    clientToken: currentToken
                 });
             }
 

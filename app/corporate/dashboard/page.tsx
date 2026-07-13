@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { auth, db } from "@/lib/firebase";
-import { collection, query, where, getDocs, doc, getDoc, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { Button } from "@/components/ui/Button";
 import { Loader2, Users, Award, ShieldCheck, Download, Search, Building2, Copy, Database } from "lucide-react";
@@ -43,6 +43,7 @@ function DashboardContent() {
     const [codes, setCodes] = useState<RegistrationCode[]>([]);
     const [generatingCodes, setGeneratingCodes] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
+    const [adminCheckFailed, setAdminCheckFailed] = useState(false);
 
     const searchParams = useSearchParams();
     const adminOverrideId = searchParams.get("companyId");
@@ -53,8 +54,19 @@ function DashboardContent() {
             let companyDocSnap;
 
             if (adminOverrideId) {
-                // Admin Override Mode: Fetch specific company
-                // (In real app, we would verify user.customClaims.admin === true here)
+                // Admin Override Mode: only a real admin may view another
+                // company's dashboard via ?companyId=. We check the caller's
+                // Firebase Auth custom claim (decoded straight from their ID
+                // token, not any Firestore field) before fetching anything -
+                // this used to rely only on two unrelated Firestore queries
+                // happening to fail for non-admins, which was fragile, not
+                // an intentional safeguard.
+                const idTokenResult = await user.getIdTokenResult();
+                if (idTokenResult.claims.admin !== true) {
+                    setAdminCheckFailed(true);
+                    setLoading(false);
+                    return;
+                }
                 const docRef = doc(db, "companies", adminOverrideId);
                 companyDocSnap = await getDoc(docRef);
             } else {
@@ -100,8 +112,32 @@ function DashboardContent() {
                 // ... (Existing Company Logic) ...
 
                 // 3. Fetch Registration Codes
+                //
+                // firestore.rules only allows a non-admin caller to `list`
+                // registration_codes when every matched doc's
+                // companyManagerUid equals their own uid (see the rule's
+                // comment for why - it's a denormalized field set at code
+                // creation time). Firestore evaluates `list` rules against
+                // the query's constraints, not per-returned-document, so a
+                // manager's query must also filter on companyManagerUid, not
+                // just companyId, or the whole query is rejected even though
+                // every doc it WOULD return happens to satisfy the rule.
+                //
+                // Admin-override mode (adminOverrideId) is a real admin
+                // viewing another company's dashboard - isAdmin() alone
+                // covers that case in the rule, and adding a
+                // companyManagerUid == admin's own uid filter would
+                // (correctly, but unhelpfully) return zero codes, since the
+                // admin isn't that company's manager. So only add the extra
+                // filter in manager mode.
                 try {
-                    const codesQ = query(collection(db, "registration_codes"), where("companyId", "==", companyDocSnap.id));
+                    const codesQ = adminOverrideId
+                        ? query(collection(db, "registration_codes"), where("companyId", "==", companyDocSnap.id))
+                        : query(
+                            collection(db, "registration_codes"),
+                            where("companyId", "==", companyDocSnap.id),
+                            where("companyManagerUid", "==", user.uid)
+                        );
                     const codesSnap = await getDocs(codesQ);
                     const fetchedCodes: RegistrationCode[] = codesSnap.docs.map(doc => doc.data() as RegistrationCode);
                     // Sort by status (active first) then created
@@ -124,11 +160,24 @@ function DashboardContent() {
 
     const handleGenerateCodes = async (quantity: number) => {
         if (!company) return;
+        if (!auth.currentUser) {
+            alert("You must be signed in as an admin to generate codes.");
+            return;
+        }
         setGeneratingCodes(true);
         try {
+            // The route accepts either an admin, or the verified caller
+            // being the managerUid on file for this companyId (checked
+            // server-side against Firestore - see
+            // app/api/corporate/generate-codes/route.ts).
+            const idToken = await auth.currentUser.getIdToken();
+
             const res = await fetch("/api/corporate/generate-codes", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${idToken}`,
+                },
                 body: JSON.stringify({
                     companyId: company.id,
                     quantity
@@ -164,70 +213,6 @@ function DashboardContent() {
         return () => unsubscribe();
     }, [adminOverrideId]);
 
-    const seedMockEmployees = async () => {
-        if (!company) return;
-        if (!confirm(`Add mock employees to ${company.name}?`)) return;
-
-        const mocks = [
-            {
-                displayName: "James Bond",
-                email: "007@secret.service",
-                progress: 100,
-                examStatus: "passed",
-                examScore: 98,
-                linkedCompanyId: company.id,
-                role: "student",
-                enrolledCourses: ["f89-flsd"]
-            },
-            {
-                displayName: "Jason Bourne",
-                email: "jason@treadstone.ops",
-                progress: 45,
-                examStatus: "in-progress",
-                linkedCompanyId: company.id,
-                role: "student",
-                enrolledCourses: ["f89-flsd"]
-            },
-            {
-                displayName: "Jack Reacher",
-                email: "reacher@investigations.mil",
-                progress: 0,
-                examStatus: "enrolled",
-                linkedCompanyId: company.id,
-                role: "student",
-                enrolledCourses: ["f89-flsd"]
-            },
-            {
-                displayName: "Ethan Hunt",
-                email: "ethan@imf.gov",
-                progress: 88,
-                examStatus: "failed",
-                examScore: 65,
-                linkedCompanyId: company.id,
-                role: "student",
-                enrolledCourses: ["f89-flsd"]
-            }
-        ];
-
-        try {
-            setLoading(true);
-            for (const mock of mocks) {
-                await addDoc(collection(db, "users"), {
-                    ...mock,
-                    createdAt: serverTimestamp()
-                });
-            }
-            // Refresh data
-            if (auth.currentUser) fetchData(auth.currentUser);
-            else window.location.reload(); // Fallback
-
-            alert("Mock employees added!");
-        } catch (e) {
-            console.error("Error seeding employees:", e);
-            setLoading(false);
-        }
-    };
-
     const copyCode = () => {
         if (company?.code) {
             navigator.clipboard.writeText(company.code);
@@ -239,6 +224,17 @@ function DashboardContent() {
         return (
             <div className="min-h-screen bg-navy-950 flex items-center justify-center">
                 <Loader2 className="text-blue-500 animate-spin" size={32} />
+            </div>
+        );
+    }
+
+    if (adminCheckFailed) {
+        return (
+            <div className="min-h-screen bg-navy-950 flex flex-col items-center justify-center text-white p-8 text-center">
+                <ShieldCheck size={48} className="text-red-500 mb-4" />
+                <h1 className="text-2xl font-bold mb-2">Access Denied</h1>
+                <p className="text-slate-400 mb-6">You do not have permission to view this company&apos;s dashboard.</p>
+                <Button href="/corporate/dashboard">Go to My Dashboard</Button>
             </div>
         );
     }
@@ -460,9 +456,6 @@ function DashboardContent() {
                                 <h3 className="text-xl font-bold text-white">Security Roster</h3>
                                 <p className="text-slate-400 text-sm">Manage enrolled officers and certifications.</p>
                             </div>
-                            <Button variant="outline" size="sm" onClick={seedMockEmployees} className="hidden md:flex gap-2 border-white/10 text-slate-400 hover:text-white">
-                                <Database size={14} /> Seed Mock
-                            </Button>
                         </div>
 
                         <div className="relative">
@@ -493,8 +486,6 @@ function DashboardContent() {
                                     <tr>
                                         <td colSpan={5} className="p-8 text-center text-slate-500">
                                             No employees have enrolled yet. Share your code <strong>{company.code}</strong> to get started.
-                                            <br className="mb-2" />
-                                            <span onClick={seedMockEmployees} className="text-blue-500 hover:underline cursor-pointer text-xs">(Or click here to Seed Mock Data)</span>
                                         </td>
                                     </tr>
                                 ) : (

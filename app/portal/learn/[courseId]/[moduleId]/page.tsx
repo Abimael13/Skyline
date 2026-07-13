@@ -1,12 +1,13 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { doc, getDoc, collection, addDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
 import { Course, Module } from "@/lib/courses";
 import { Button } from "@/components/ui/Button";
 import { Loader2, ArrowLeft, BookOpen, Video, BrainCircuit, GraduationCap, ShieldCheck } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { clsx } from "clsx";
 
 // Player Components
@@ -21,6 +22,7 @@ type Params = Promise<{ courseId: string; moduleId: string }>;
 export default function LearningPage(props: { params: Params }) {
     const params = use(props.params);
     const { courseId, moduleId } = params;
+    const router = useRouter();
 
     const [course, setCourse] = useState<Course | null>(null);
     const [currentModule, setCurrentModule] = useState<Module | null>(null);
@@ -80,6 +82,24 @@ export default function LearningPage(props: { params: Params }) {
 
         fetchData();
     }, [courseId, moduleId]);
+
+    // Some modules are just pointers to a dedicated, purpose-built route
+    // (e.g. exam-type modules that must be served by the secure, server-graded
+    // exam flow rather than rendered inline here). Respect that regardless of
+    // how the student navigated to this URL, including direct/typed navigation.
+    useEffect(() => {
+        if (currentModule?.type === "exam" && currentModule.route) {
+            router.replace(currentModule.route);
+        }
+    }, [currentModule, router]);
+
+    if (currentModule?.type === "exam" && currentModule.route) {
+        return (
+            <div className="flex justify-center py-20 min-h-screen bg-navy-950 items-center">
+                <Loader2 className="animate-spin text-blue-500" size={32} />
+            </div>
+        );
+    }
 
     if (loading) {
         return (
@@ -159,22 +179,57 @@ export default function LearningPage(props: { params: Params }) {
                         onComplete={async (score, complianceLogs) => {
                             console.log("Exam Complete", score, complianceLogs);
 
-                            // Save Result to Database
+                            // Save the submission so staff can review/grade it.
+                            //
+                            // NOTE ON SCOPE: this component computes `score`
+                            // entirely in the browser, so it can never be
+                            // trusted as a final, official grade - a client
+                            // can report any score it likes. That's a known,
+                            // pre-existing issue with this exam flow (shared
+                            // with components/learning/ExamPortal.tsx) that
+                            // is planned to be addressed separately as part
+                            // of broader exam-integrity work (server-side
+                            // verification of answers, not just the score).
+                            //
+                            // For now we write to the SAME collection/shape
+                            // already used by ExamPortal.tsx and already
+                            // covered by firestore.rules
+                            // (users/{uid}/examSubmissions/{examId} - owner
+                            // may create their own, only an admin may
+                            // update/grade it). The previous code wrote to a
+                            // different, uncovered path
+                            // (users/{uid}/exam_results, auto-ID) that the
+                            // rules never granted access to, so every write
+                            // silently failed and the result was lost. We
+                            // record the client-reported score/status here
+                            // for visibility only - the authoritative pass/
+                            // fail record students and admins actually see
+                            // (app/portal/dashboard, app/admin/students/**)
+                            // is the `examResults` map on the user doc,
+                            // which is only ever set by the admin-only
+                            // /api/admin/grade-exam route.
                             if (auth.currentUser) {
                                 try {
                                     const passed = score >= 70;
-                                    await addDoc(collection(db, "users", auth.currentUser.uid, "exam_results"), {
+                                    // Doc ID is the courseId (not moduleId) to match the existing
+                                    // convention used by ExamPortal.tsx and the admin student
+                                    // detail page, which both key this subcollection by course id
+                                    // (e.g. "f89-flsd") so admins can actually find the submission.
+                                    await setDoc(doc(db, "users", auth.currentUser.uid, "examSubmissions", courseId), {
                                         courseId: courseId,
                                         moduleId: moduleId,
                                         moduleTitle: currentModule.title,
-                                        score: score,
-                                        passed: passed,
-                                        timestamp: new Date().toISOString(),
+                                        submittedAt: new Date().toISOString(),
+                                        status: "submitted",
+                                        // Client-reported only - not an official grade until an
+                                        // admin reviews it via the grading tool.
+                                        clientReportedScore: score,
+                                        clientReportedPassed: passed,
                                         complianceLogs: complianceLogs || []
                                     });
-                                    console.log("Exam result saved to Firestore");
+                                    console.log("Exam submission saved to Firestore");
                                 } catch (e) {
-                                    console.error("Failed to save exam result", e);
+                                    console.error("Failed to save exam submission", e);
                                 }
                             } else {
                                 console.warn("Cannot save result: No user logged in");

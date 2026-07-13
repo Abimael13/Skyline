@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
-import { doc, setDoc, collection, query, where, getDocs, increment, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
+import { doc, setDoc, getDoc, updateDoc, arrayUnion, collection, query, where, getDocs } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
@@ -29,8 +29,12 @@ export default function SignupPage() {
     const [isCorporate, setIsCorporate] = useState(false);
     const [companyCode, setCompanyCode] = useState("");
 
-    // Temp storage for validated data before creation
-    const [validatedData, setValidatedData] = useState<{ linkedCompanyId: string | null, uniqueCodeRef: any | null } | null>(null);
+    // Temp storage for validated data before creation. `linkedCompanyId` here
+    // is only used for an optimistic UI hint - the actual redemption
+    // (marking a code used / incrementing seatsUsed) happens server-side in
+    // completeRegistration() via /api/auth/redeem-code, using the trimmed
+    // company code the user entered.
+    const [validatedData, setValidatedData] = useState<{ linkedCompanyId: string | null } | null>(null);
 
     const router = useRouter();
 
@@ -47,9 +51,17 @@ export default function SignupPage() {
 
         try {
             let linkedCompanyId = null;
-            let uniqueCodeRef = null;
 
-            // 1. Validate Company Code if Corporate
+            // 1. Validate Company Code if Corporate.
+            // This is a READ-ONLY pre-check purely for fast user feedback
+            // ("that code is invalid/used/full") before we even send a 2FA
+            // email. It intentionally does not write anything - the actual
+            // redemption (marking the code used, incrementing seatsUsed) is
+            // re-validated and performed atomically server-side in
+            // completeRegistration() via /api/auth/redeem-code, since a
+            // client-side check alone can't be trusted to enforce the seat
+            // cap (and this check can go stale between here and account
+            // creation, e.g. two people racing to use the last seat).
             if (isCorporate) {
                 if (!companyCode) {
                     setError("Please enter your Company Access Code.");
@@ -77,7 +89,6 @@ export default function SignupPage() {
                     }
 
                     linkedCompanyId = codeData.companyId;
-                    uniqueCodeRef = codeDocRef;
 
                 } else {
                     // B. Fallback: Check Legacy Company Code
@@ -103,7 +114,7 @@ export default function SignupPage() {
             }
 
             // Store validated data
-            setValidatedData({ linkedCompanyId, uniqueCodeRef });
+            setValidatedData({ linkedCompanyId });
 
             // 2. Send Verification Email (2FA)
             await sendVerificationCode();
@@ -160,7 +171,7 @@ export default function SignupPage() {
 
     const completeRegistration = async () => {
         try {
-            const { linkedCompanyId, uniqueCodeRef } = validatedData || {};
+            const { linkedCompanyId } = validatedData || {};
 
             // Create Auth User
             const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -181,27 +192,30 @@ export default function SignupPage() {
                 enrolledCourses: []
             };
 
-            if (linkedCompanyId) {
-                userData.linkedCompanyId = linkedCompanyId;
-                userData.enrolledCourses = ["f89-flsd"];
+            await setDoc(userDocRef, userData, { merge: true });
 
-                // Increment seats used
-                const companyRef = doc(db, "companies", linkedCompanyId);
-                await updateDoc(companyRef, {
-                    seatsUsed: increment(1)
+            // Redeem the corporate code (if any) and enroll in the company
+            // server-side, in one atomic transaction. This replaces two
+            // separate, unguarded client writes (increment seatsUsed +
+            // mark code used) that were never tied together, meaning a
+            // user could previously redeem a code without the seat count
+            // ever going up. See app/api/auth/redeem-code/route.ts.
+            if (linkedCompanyId) {
+                const idToken = await user.getIdToken();
+                const res = await fetch("/api/auth/redeem-code", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${idToken}`,
+                    },
+                    body: JSON.stringify({ code: companyCode.trim() }),
                 });
 
-                // If Unique Code was used, mark it as used
-                if (uniqueCodeRef) {
-                    await updateDoc(uniqueCodeRef, {
-                        status: 'used',
-                        usedBy: user.uid,
-                        usedAt: new Date()
-                    });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    throw new Error(data.error || "Failed to redeem your company access code.");
                 }
             }
-
-            await setDoc(userDocRef, userData, { merge: true });
 
             // Handle Legacy Pending Enrollment
             const pendingEnrollment = sessionStorage.getItem("pendingEnrollment");

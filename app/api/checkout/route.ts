@@ -1,22 +1,36 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getCourseById } from "@/lib/db";
+import { verifyIdToken } from "@/lib/firebaseAdmin";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_placeholder", {
     apiVersion: "2025-12-15.clover" as any,
 });
 
 export async function POST(req: Request) {
+    let decodedToken;
+    try {
+        decodedToken = await verifyIdToken(req);
+    } catch (error: any) {
+        return NextResponse.json({ error: error.message || "Unauthorized" }, { status: 401 });
+    }
+
     try {
         const body = await req.json();
         const { courseId, seats = 1, userId, userEmail, userName, sessionId } = body;
 
-        if (!courseId || !userId) {
+        if (!courseId) {
             return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
         }
 
-        // Validate User ID (Simple check to ensure it's not missing, though strict auth check should be upstream or via token)
-        // For now, we trust the client sends the correct UID after login.
+        // The authenticated caller is always the enrolling user - we ignore
+        // any client-supplied userId that doesn't match, rather than trusting
+        // it. This intentionally removes "pay for someone else" for now;
+        // self-enrollment only.
+        if (userId && userId !== decodedToken.uid) {
+            return NextResponse.json({ error: "You can only enroll your own account." }, { status: 403 });
+        }
+        const enrollingUserId = decodedToken.uid;
 
         const course = await getCourseById(courseId);
         if (!course) {
@@ -43,10 +57,10 @@ export async function POST(req: Request) {
             mode: "payment",
             ui_mode: "embedded",
             return_url: `${process.env.NEXT_PUBLIC_APP_URL}/signup/success?session_id={CHECKOUT_SESSION_ID}`,
-            customer_email: userEmail, // Pre-fill email
+            customer_email: decodedToken.email || userEmail, // Pre-fill email, prefer the verified token's email
             metadata: {
                 courseId,
-                userId,
+                userId: enrollingUserId, // Always the verified caller, never trusted from the client body
                 sessionId: sessionId || "", // Pass session ID
                 seats: seats.toString(),
                 userName: userName || "",

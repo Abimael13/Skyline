@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Upload, CheckCircle, XCircle, FileText, Loader2, AlertCircle } from "lucide-react";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { storage } from "@/lib/firebase";
+import { auth, storage } from "@/lib/firebase";
 
 interface GradingFormProps {
     studentId: string;
@@ -51,10 +51,19 @@ export function GradingForm({ studentId, courseId, courseTitle, onSuccess, initi
                 diplomaUrl = await getDownloadURL(storageRef);
             }
 
-            // 2. Submit to API
+            // 2. Submit to API (requires an admin ID token - the route now
+            // checks this server-side via requireAdmin()).
+            if (!auth.currentUser) {
+                throw new Error("You must be signed in as an admin to submit a grade.");
+            }
+            const idToken = await auth.currentUser.getIdToken();
+
             const response = await fetch("/api/admin/grade-exam", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${idToken}`,
+                },
                 body: JSON.stringify({
                     studentId,
                     courseId,
