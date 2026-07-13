@@ -1,17 +1,8 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import { generateWelcomeEmailHtml, generateExamPassEmailHtml, generateExamFailEmailHtml, generateVerificationEmailHtml, generateContactEmailHtml } from "./email-templates";
 
-// Simple in-memory transporter (reusing the one from contact form if possible, or new one)
-// For production, these should be env vars
-const transporter = nodemailer.createTransport({
-    host: "smtp.office365.com",
-    port: 587,
-    secure: false, // true for 465, false for other ports
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-    },
-});
+// Resend client - transactional email API, replaces the old Office365/nodemailer SMTP transport.
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 interface WelcomeEmailProps {
     email: string;
@@ -25,16 +16,22 @@ export async function sendWelcomeEmail({ email, name, courseTitle, startDate, po
     const htmlContent = generateWelcomeEmailHtml({ name, courseTitle, startDate, portalLink });
 
     try {
-        await transporter.sendMail({
-            from: `"Skyline Admissions" <${process.env.EMAIL_USER}>`,
+        const { error } = await resend.emails.send({
+            from: `Skyline Admissions <${process.env.EMAIL_FROM}>`,
             to: email,
             subject: `Welcome to ${courseTitle} - Start Your Training`,
             html: htmlContent,
             attachments: [
                 // Mock attachments for the demo - in prod these would be real files/links
-                // { filename: 'FDNY_flsd_manual.pdf', path: 'https://example.com/manual.pdf' } 
+                // { filename: 'FDNY_flsd_manual.pdf', path: 'https://example.com/manual.pdf' }
             ]
         });
+
+        if (error) {
+            console.error("Error sending welcome email:", error);
+            return false;
+        }
+
         console.log(`Welcome email sent to ${email}`);
         return true;
     } catch (error) {
@@ -67,7 +64,7 @@ export async function sendExamResultEmail({ email, name, courseTitle, passed, sc
         if (diplomaDownloadUrl) {
             attachments.push({
                 filename: `${name.replace(/\s+/g, '_')}_Diploma.pdf`,
-                path: diplomaDownloadUrl // Nodemailer can fetch from URL
+                path: diplomaDownloadUrl // Resend can fetch from URL
             });
         }
     } else {
@@ -81,13 +78,19 @@ export async function sendExamResultEmail({ email, name, courseTitle, passed, sc
     }
 
     try {
-        await transporter.sendMail({
-            from: `"Skyline Academics" <${process.env.EMAIL_USER}>`,
+        const { error } = await resend.emails.send({
+            from: `Skyline Academics <${process.env.EMAIL_FROM}>`,
             to: email,
             subject: subject,
             html: htmlContent,
             attachments: attachments
         });
+
+        if (error) {
+            console.error("Error sending exam result email:", error);
+            return false;
+        }
+
         console.log(`Exam result email sent to ${email} (Passed: ${passed})`);
         return true;
     } catch (error) {
@@ -100,12 +103,18 @@ export async function sendVerificationEmail(email: string, code: string) {
     const htmlContent = generateVerificationEmailHtml(code);
 
     try {
-        await transporter.sendMail({
-            from: `"Skyline Security" <${process.env.EMAIL_USER}>`,
+        const { error } = await resend.emails.send({
+            from: `Skyline Security <${process.env.EMAIL_FROM}>`,
             to: email,
             subject: "Verify your email address",
             html: htmlContent
         });
+
+        if (error) {
+            console.error("Error sending verification email:", error);
+            return false;
+        }
+
         console.log(`Verification code sent to ${email}`);
         return true;
     } catch (error) {
@@ -126,13 +135,19 @@ export async function sendContactEmail({ name, email, phone, subject, message }:
     const htmlContent = generateContactEmailHtml({ name, email, phone, subject, message });
 
     try {
-        await transporter.sendMail({
-            from: `"Skyline Website Contact" <${process.env.EMAIL_USER}>`,
-            to: process.env.EMAIL_USER,
+        const { error } = await resend.emails.send({
+            from: `Skyline Website Contact <${process.env.EMAIL_FROM}>`,
+            to: process.env.EMAIL_FROM as string,
             replyTo: email,
             subject: `New Contact Form Submission: ${subject}`,
             html: htmlContent,
         });
+
+        if (error) {
+            console.error("Error sending contact email:", error);
+            return false;
+        }
+
         console.log(`Contact form email sent from ${email}`);
         return true;
     } catch (error) {

@@ -1,3 +1,15 @@
+// Escapes the five standard HTML-unsafe characters so user-supplied text
+// can never be interpreted as markup (tags, attributes, etc.) when
+// interpolated into these email templates.
+function escapeHtml(value: string): string {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 interface WelcomeEmailProps {
     name: string;
     courseTitle: string;
@@ -6,6 +18,10 @@ interface WelcomeEmailProps {
 }
 
 export function generateWelcomeEmailHtml({ name, courseTitle, startDate, portalLink }: WelcomeEmailProps) {
+    // `name` traces back to user-supplied data (public registration form body,
+    // or Stripe checkout metadata/customer name) and is not validated for
+    // HTML safety upstream, so it must be escaped before interpolation.
+    const safeName = escapeHtml(name);
     return `
     <!DOCTYPE html>
     <html>
@@ -31,7 +47,7 @@ export function generateWelcomeEmailHtml({ name, courseTitle, startDate, portalL
                  <h1 class="h1">Skyline Safety Services</h1>
             </div>
             <div class="content">
-                <p>Hello <strong>${name}</strong>,</p>
+                <p>Hello <strong>${safeName}</strong>,</p>
                 <p>Thank you for registering for <strong>${courseTitle}</strong>. Your seat is confirmed for the session beginning on <strong>${startDate}</strong>.</p>
                 
                 <div class="info">
@@ -85,7 +101,11 @@ export interface ExamFailEmailProps extends BaseEmailProps {
     retakeDateLimit: string; // 30 days from now
 }
 
-export const generateExamPassEmailHtml = ({ name, courseTitle, score }: ExamPassEmailProps) => `
+export const generateExamPassEmailHtml = ({ name, courseTitle, score }: ExamPassEmailProps) => {
+    // `name` ultimately comes from the student's stored displayName (set by
+    // the user at signup), so it is treated as user-controllable and escaped.
+    const safeName = escapeHtml(name);
+    return `
 <!DOCTYPE html>
 <html>
 <head>
@@ -106,8 +126,8 @@ export const generateExamPassEmailHtml = ({ name, courseTitle, score }: ExamPass
             <h1>Congratulations, Graduate!</h1>
         </div>
         <div class="content">
-            <p>Dear ${name},</p>
-            
+            <p>Dear ${safeName},</p>
+
             <p>We are thrilled to inform you that you have <strong>PASSED</strong> the Graduation Exam for <strong>${courseTitle}</strong>.</p>
             
             <div class="score-box">
@@ -137,8 +157,13 @@ export const generateExamPassEmailHtml = ({ name, courseTitle, score }: ExamPass
 </body>
 </html>
 `;
+};
 
-export const generateExamFailEmailHtml = ({ name, courseTitle, score, retakeDateLimit }: ExamFailEmailProps) => `
+export const generateExamFailEmailHtml = ({ name, courseTitle, score, retakeDateLimit }: ExamFailEmailProps) => {
+    // `name` ultimately comes from the student's stored displayName (set by
+    // the user at signup), so it is treated as user-controllable and escaped.
+    const safeName = escapeHtml(name);
+    return `
 <!DOCTYPE html>
 <html>
 <head>
@@ -159,8 +184,8 @@ export const generateExamFailEmailHtml = ({ name, courseTitle, score, retakeDate
             <h1>Exam Result Notification</h1>
         </div>
         <div class="content">
-            <p>Dear ${name},</p>
-            
+            <p>Dear ${safeName},</p>
+
             <p>This email is to notify you of the result of your recent Graduation Exam for <strong>${courseTitle}</strong>.</p>
             
             <div class="score-box">
@@ -186,6 +211,7 @@ export const generateExamFailEmailHtml = ({ name, courseTitle, score, retakeDate
 </body>
 </html>
 `;
+};
 
 export const generateVerificationEmailHtml = (code: string) => `
 <!DOCTYPE html>
@@ -226,7 +252,20 @@ export interface ContactEmailProps {
     message: string;
 }
 
-export const generateContactEmailHtml = ({ name, email, phone, subject, message }: ContactEmailProps) => `
+export const generateContactEmailHtml = ({ name, email, phone, subject, message }: ContactEmailProps) => {
+    // All five fields come straight from an anonymous public contact form
+    // submission (see app/api/contact/route.ts) with no HTML sanitization -
+    // only length/format validation via Zod. Escape everything before it is
+    // interpolated into this HTML email so a visitor can't inject markup
+    // (e.g. a fake clickable link) into the notification your team reads.
+    const safeName = escapeHtml(name);
+    const safeEmail = escapeHtml(email);
+    const safePhone = escapeHtml(phone);
+    const safeSubject = escapeHtml(subject);
+    // Escape the raw text first, then convert newlines to <br> so the two
+    // operations compose correctly (the inserted <br> tags are not escaped).
+    const safeMessage = escapeHtml(message).replace(/\n/g, '<br>');
+    return `
 <!DOCTYPE html>
 <html>
 <head>
@@ -251,22 +290,22 @@ export const generateContactEmailHtml = ({ name, email, phone, subject, message 
         
         <div class="field">
             <span class="label">From</span>
-            <div class="value">\${name} &lt;\${email}&gt;</div>
+            <div class="value">${safeName} &lt;${safeEmail}&gt;</div>
         </div>
 
         <div class="field">
             <span class="label">Phone</span>
-            <div class="value">\${phone || 'Not provided'}</div>
+            <div class="value">${safePhone || 'Not provided'}</div>
         </div>
 
         <div class="field">
             <span class="label">Subject</span>
-            <div class="value">\${subject}</div>
+            <div class="value">${safeSubject}</div>
         </div>
 
         <div class="field">
             <span class="label">Message</span>
-            <div class="message-box value">\${message.replace(/\\n/g, '<br>')}</div>
+            <div class="message-box value">${safeMessage}</div>
         </div>
 
         <div class="footer">
@@ -276,3 +315,4 @@ export const generateContactEmailHtml = ({ name, email, phone, subject, message 
 </body>
 </html>
 `;
+};
