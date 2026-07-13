@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getCourseById } from "@/lib/db";
 import { verifyIdToken } from "@/lib/firebaseAdmin";
+import { isCourseEnrollable } from "@/lib/courses";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_placeholder", {
     apiVersion: "2025-12-15.clover" as any,
@@ -35,6 +36,15 @@ export async function POST(req: Request) {
         const course = await getCourseById(courseId);
         if (!course) {
             return NextResponse.json({ error: "Course not found" }, { status: 404 });
+        }
+
+        // Never let a checkout go through for a course that isn't actually
+        // open for enrollment (e.g. status: "coming-soon"). The UI already
+        // hides the enroll button for these courses, but that's only the
+        // experience layer - this is the real boundary, since someone could
+        // otherwise hit this endpoint directly with a coming-soon courseId.
+        if (!isCourseEnrollable(course)) {
+            return NextResponse.json({ error: "This course is not yet open for enrollment." }, { status: 403 });
         }
 
         // Create Checkout Session

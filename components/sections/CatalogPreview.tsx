@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { COURSES, Course } from "@/lib/courses";
+import { COURSES, Course, isCourseEnrollable, mergeCoursesWithStatic } from "@/lib/courses";
 import { Button } from "@/components/ui/Button";
 import { Clock, BookOpen, ChevronRight, Check } from "lucide-react";
 import Link from "next/link";
@@ -21,9 +21,7 @@ export function CatalogPreview() {
                     fetchedCourses.push(doc.data() as Course);
                 });
 
-                if (fetchedCourses.length > 0) {
-                    setCourses(fetchedCourses);
-                }
+                setCourses(mergeCoursesWithStatic(fetchedCourses));
             } catch (error) {
                 console.error("Error fetching courses:", error);
             }
@@ -60,65 +58,91 @@ export function CatalogPreview() {
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto">
-                    {courses.map((course, index) => (
-                        <motion.div
-                            key={course.id}
-                            initial={{ opacity: 0, y: 20 }}
-                            whileInView={{ opacity: 1, y: 0 }}
-                            viewport={{ once: true }}
-                            transition={{ delay: index * 0.1 }}
-                            className="bg-navy-950 border border-white/5 rounded-3xl overflow-hidden hover:border-blue-500/30 transition-all group flex flex-col relative"
-                        >
-                            <Link href={`/courses/${course.id}`} className="absolute inset-0 z-10">
-                                <span className="sr-only">View {course.title}</span>
-                            </Link>
-                            <div className="p-8 flex-1 flex flex-col pointer-events-none">
-                                <div className="flex justify-between items-start mb-6">
-                                    <div>
-                                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-900/30 border border-blue-500/30 text-blue-300 text-xs font-medium mb-4">
-                                            <BookOpen size={12} />
-                                            Certification
+                    {courses.map((course, index) => {
+                        const enrollable = isCourseEnrollable(course);
+
+                        return (
+                            <motion.div
+                                key={course.id}
+                                initial={{ opacity: 0, y: 20 }}
+                                whileInView={{ opacity: 1, y: 0 }}
+                                viewport={{ once: true }}
+                                transition={{ delay: index * 0.1 }}
+                                className={`bg-navy-950 border rounded-3xl overflow-hidden transition-all group flex flex-col relative ${enrollable ? "border-white/5 hover:border-blue-500/30" : "border-white/5"
+                                    }`}
+                            >
+                                <Link href={`/courses/${course.id}`} className="absolute inset-0 z-10">
+                                    <span className="sr-only">View {course.title}</span>
+                                </Link>
+                                <div className="p-8 flex-1 flex flex-col pointer-events-none">
+                                    <div className="flex justify-between items-start mb-6">
+                                        <div>
+                                            {enrollable ? (
+                                                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-900/30 border border-blue-500/30 text-blue-300 text-xs font-medium mb-4">
+                                                    <BookOpen size={12} />
+                                                    Certification
+                                                </div>
+                                            ) : (
+                                                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-900/30 border border-amber-500/30 text-amber-300 text-xs font-medium mb-4">
+                                                    <Clock size={12} />
+                                                    Coming Soon
+                                                </div>
+                                            )}
+                                            <h3 className="text-2xl font-bold text-white mb-2">{course.title}</h3>
+                                            <div className="flex items-center gap-4 text-sm text-slate-400">
+                                                <div className="flex items-center gap-1.5">
+                                                    <Clock size={16} className="text-blue-500" />
+                                                    {enrollable ? course.duration : "Duration TBD"}
+                                                </div>
+                                                {enrollable && (
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span className={`w-1.5 h-1.5 rounded-full ${course.format === 'Online' ? 'bg-cyan-500' : 'bg-green-500'}`} />
+                                                        {course.format}
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
-                                        <h3 className="text-2xl font-bold text-white mb-2">{course.title}</h3>
-                                        <div className="flex items-center gap-4 text-sm text-slate-400">
-                                            <div className="flex items-center gap-1.5">
-                                                <Clock size={16} className="text-blue-500" />
-                                                {course.duration}
-                                            </div>
-                                            <div className="flex items-center gap-1.5">
-                                                <span className={`w-1.5 h-1.5 rounded-full ${course.format === 'Online' ? 'bg-cyan-500' : 'bg-green-500'}`} />
-                                                {course.format}
-                                            </div>
+                                        <div className="text-3xl font-bold text-white">
+                                            {enrollable ? `$${course.price}` : (
+                                                <span className="text-base font-semibold text-slate-400">Pricing TBA</span>
+                                            )}
                                         </div>
                                     </div>
-                                    <div className="text-3xl font-bold text-white">
-                                        ${course.price}
+
+                                    <p className="text-slate-400 mb-8 line-clamp-3">
+                                        {course.description}
+                                    </p>
+
+                                    <ul className="space-y-3 mb-8">
+                                        {(enrollable
+                                            ? ["FDNY Accredited", "Study Materials Included", "Certificate upon Completion"]
+                                            : ["In development", "Pending NY State accreditation", "Not yet open for enrollment"]
+                                        ).map((item, i) => (
+                                            <li key={i} className="flex items-center gap-3 text-slate-300 text-sm">
+                                                <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${enrollable ? "bg-blue-500/20 text-blue-400" : "bg-amber-500/20 text-amber-400"
+                                                    }`}>
+                                                    <Check size={12} />
+                                                </div>
+                                                {item}
+                                            </li>
+                                        ))}
+                                    </ul>
+
+                                    <div className="mt-auto">
+                                        {enrollable ? (
+                                            <div className="w-full inline-flex items-center justify-center rounded-full font-medium transition-colors h-14 px-8 text-lg bg-blue-600 text-white shadow-lg shadow-blue-900/20 group-hover:bg-blue-500 group-hover:shadow-blue-500/25">
+                                                Enroll Now <ChevronRight size={18} className="ml-2 group-hover:translate-x-1 transition-transform" />
+                                            </div>
+                                        ) : (
+                                            <div className="w-full inline-flex items-center justify-center rounded-full font-medium transition-colors h-14 px-8 text-lg bg-navy-800 text-slate-300 border border-white/10 group-hover:border-amber-500/30">
+                                                Learn More <ChevronRight size={18} className="ml-2 group-hover:translate-x-1 transition-transform" />
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
-
-                                <p className="text-slate-400 mb-8 line-clamp-3">
-                                    {course.description}
-                                </p>
-
-                                <ul className="space-y-3 mb-8">
-                                    {["FDNY Accredited", "Study Materials Included", "Certificate upon Completion"].map((item, i) => (
-                                        <li key={i} className="flex items-center gap-3 text-slate-300 text-sm">
-                                            <div className="w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
-                                                <Check size={12} />
-                                            </div>
-                                            {item}
-                                        </li>
-                                    ))}
-                                </ul>
-
-                                <div className="mt-auto">
-                                    <div className="w-full inline-flex items-center justify-center rounded-full font-medium transition-colors h-14 px-8 text-lg bg-blue-600 text-white shadow-lg shadow-blue-900/20 group-hover:bg-blue-500 group-hover:shadow-blue-500/25">
-                                        Enroll Now <ChevronRight size={18} className="ml-2 group-hover:translate-x-1 transition-transform" />
-                                    </div>
-                                </div>
-                            </div>
-                        </motion.div>
-                    ))}
+                            </motion.div>
+                        );
+                    })}
                 </div>
 
                 <div className="mt-16 text-center">

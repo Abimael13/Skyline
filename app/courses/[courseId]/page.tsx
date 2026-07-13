@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from "react";
 import { motion } from "framer-motion";
-import { COURSES, Course } from "@/lib/courses";
+import { COURSES, Course, isCourseEnrollable } from "@/lib/courses";
 import { Navbar } from "@/components/layout/Navbar";
 import { Footer } from "@/components/layout/Footer";
 import { Button } from "@/components/ui/Button";
@@ -120,6 +120,8 @@ export default function CourseBookingPage({ params }: { params: Promise<{ course
         notFound();
     }
 
+    const enrollable = isCourseEnrollable(course);
+
     const selectedSession = sessions.find(s => s.id === selectedSessionId);
     const needsVerification = !!course.eligibilityRequirements && course.eligibilityRequirements.length > 0;
 
@@ -155,13 +157,20 @@ export default function CourseBookingPage({ params }: { params: Promise<{ course
                         initial={{ opacity: 0, x: -20 }}
                         animate={{ opacity: 1, x: 0 }}
                     >
-                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-900/30 border border-blue-500/30 text-blue-300 text-sm font-medium mb-6">
-                            <CheckCircle size={14} />
-                            FDNY Accredited
-                        </div>
+                        {enrollable ? (
+                            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-900/30 border border-blue-500/30 text-blue-300 text-sm font-medium mb-6">
+                                <CheckCircle size={14} />
+                                FDNY Accredited
+                            </div>
+                        ) : (
+                            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-900/30 border border-amber-500/30 text-amber-300 text-sm font-medium mb-6">
+                                <Clock size={14} />
+                                Coming Soon
+                            </div>
+                        )}
 
                         {/* Live Virtual Indicator */}
-                        {course.format === "Live + Online" && (
+                        {enrollable && course.format === "Live + Online" && (
                             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-900/30 border border-purple-500/30 text-purple-300 text-sm font-medium mb-6 ml-3">
                                 <Users size={14} />
                                 Live Virtual Zoom Course
@@ -178,118 +187,158 @@ export default function CourseBookingPage({ params }: { params: Promise<{ course
                                 <div className="text-slate-500 text-sm mb-1 flex items-center gap-2">
                                     <Clock size={16} /> Duration
                                 </div>
-                                <div className="font-semibold">{course.duration}</div>
+                                <div className="font-semibold">{enrollable ? course.duration : "To be announced"}</div>
                             </div>
                             <div>
                                 <div className="text-slate-500 text-sm mb-1 flex items-center gap-2">
                                     <Calendar size={16} /> Price per Student
                                 </div>
-                                <div className="font-semibold text-blue-400 text-xl">${course.price}</div>
+                                <div className="font-semibold text-blue-400 text-xl">{enrollable ? `$${course.price}` : "TBA"}</div>
                             </div>
                             <div className="col-span-2">
                                 <div className="text-slate-500 text-sm mb-1">Schedule Format</div>
-                                <div className="font-semibold">{course.schedule}</div>
+                                <div className="font-semibold">{enrollable ? course.schedule : "To be announced"}</div>
                             </div>
                         </div>
 
-                        {needsVerification && (
+                        {enrollable && needsVerification && (
                             <EligibilityCheck
                                 requirements={course.eligibilityRequirements!}
                                 onVerified={setIsEligible}
                             />
                         )}
 
-                        <h3 className="text-lg font-bold mb-4">What you'll learn:</h3>
-                        <ul className="space-y-3 mb-8">
-                            {[
-                                "Fire Safety fundamentals and codes",
-                                "Emergency Action Plan (EAP) implementation",
-                                "Active Shooter protocols",
-                                "Building systems and alarms",
-                            ].map((item, i) => (
-                                <li key={i} className="flex items-center gap-3 text-slate-300">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                                    {item}
-                                </li>
-                            ))}
-                        </ul>
-                    </motion.div>
-
-                    {/* Right: Date Selection */}
-                    <motion.div
-                        initial={{ opacity: 0, x: 20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.2 }}
-                        className="bg-navy-900 border border-white/10 rounded-3xl p-8 sticky top-32 shadow-2xl shadow-black/20"
-                    >
-                        <h2 className="text-2xl font-bold mb-2">Select a Start Date</h2>
-                        <p className="text-slate-400 mb-6">Choose when you want to begin your training.</p>
-
-                        {isLoadingSessions ? (
-                            <div className="text-center py-8 text-slate-500">Loading schedules...</div>
+                        {enrollable ? (
+                            <>
+                                <h3 className="text-lg font-bold mb-4">What you'll learn:</h3>
+                                <ul className="space-y-3 mb-8">
+                                    {[
+                                        "Fire Safety fundamentals and codes",
+                                        "Emergency Action Plan (EAP) implementation",
+                                        "Active Shooter protocols",
+                                        "Building systems and alarms",
+                                    ].map((item, i) => (
+                                        <li key={i} className="flex items-center gap-3 text-slate-300">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                                            {item}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </>
                         ) : (
-                            <div className="space-y-3 mb-8">
-                                {sessions.map((session) => {
-                                    const isFull = session.seatsRemaining === 0;
-                                    const formattedDate = new Date(session.startDate).toLocaleDateString(undefined, {
-                                        month: 'short', day: 'numeric', year: 'numeric'
-                                    });
-
-                                    return (
-                                        <button
-                                            key={session.id}
-                                            disabled={isFull}
-                                            onClick={() => {
-                                                setSelectedSessionId(session.id);
-                                                setError(null);
-                                            }}
-                                            className={`w-full text-left p-4 rounded-xl border transition-all flex justify-between items-center group ${selectedSessionId === session.id
-                                                ? "bg-blue-600 border-blue-500 shadow-lg shadow-blue-900/40"
-                                                : isFull
-                                                    ? "bg-navy-950 border-white/5 opacity-50 cursor-not-allowed"
-                                                    : "bg-navy-800 border-white/5 hover:border-blue-500/50 hover:bg-navy-800/80"
-                                                }`}
-                                        >
-                                            <div>
-                                                <span className="font-medium block">{formattedDate}</span>
-                                                <span className="text-xs opacity-70 block mt-1">{session.daySchedule}</span>
-                                            </div>
-
-                                            <div className="text-right">
-                                                {isFull ? (
-                                                    <span className="inline-flex items-center gap-1 text-red-400 text-sm font-bold">
-                                                        <AlertTriangle size={14} /> Class Full
-                                                    </span>
-                                                ) : (
-                                                    <span className={`text-sm font-medium ${selectedSessionId === session.id ? "text-blue-100" : "text-blue-400"}`}>
-                                                        {session.seatsRemaining} Seats Left
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </button>
-                                    );
-                                })}
+                            <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-6 mb-8">
+                                <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
+                                    <Clock size={18} className="text-amber-400" />
+                                    This course is in development
+                                </h3>
+                                <p className="text-slate-400 leading-relaxed">
+                                    We're building this program now and it's pending NY State accreditation, so the curriculum isn't published yet.{" "}
+                                    <Link href="/contact" className="text-blue-400 hover:text-blue-300 font-medium">
+                                        Contact us
+                                    </Link>{" "}
+                                    and we'll let you know as soon as it's ready.
+                                </p>
                             </div>
                         )}
-
-
-
-                        <div className="pt-6 border-t border-white/5">
-                            <Button
-                                size="lg"
-                                className="w-full"
-                                disabled={!canProceed}
-                                onClick={() => setShowPayment(true)}
-                            >
-                                {isCapacityIssue ? "Capacity Exceeded" : "Proceed to Payment"} <ArrowRight size={20} className="ml-2" />
-                            </Button>
-                            <p className="text-center text-xs text-slate-500 mt-4">
-                                {!isEligible && needsVerification
-                                    ? "Please verify your eligibility to continue."
-                                    : "You'll create an account in the next step."}
-                            </p>
-                        </div>
                     </motion.div>
+
+                    {/* Right: Date Selection (or "not yet available" for coming-soon courses) */}
+                    {enrollable ? (
+                        <motion.div
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: 0.2 }}
+                            className="bg-navy-900 border border-white/10 rounded-3xl p-8 sticky top-32 shadow-2xl shadow-black/20"
+                        >
+                            <h2 className="text-2xl font-bold mb-2">Select a Start Date</h2>
+                            <p className="text-slate-400 mb-6">Choose when you want to begin your training.</p>
+
+                            {isLoadingSessions ? (
+                                <div className="text-center py-8 text-slate-500">Loading schedules...</div>
+                            ) : (
+                                <div className="space-y-3 mb-8">
+                                    {sessions.map((session) => {
+                                        const isFull = session.seatsRemaining === 0;
+                                        const formattedDate = new Date(session.startDate).toLocaleDateString(undefined, {
+                                            month: 'short', day: 'numeric', year: 'numeric'
+                                        });
+
+                                        return (
+                                            <button
+                                                key={session.id}
+                                                disabled={isFull}
+                                                onClick={() => {
+                                                    setSelectedSessionId(session.id);
+                                                    setError(null);
+                                                }}
+                                                className={`w-full text-left p-4 rounded-xl border transition-all flex justify-between items-center group ${selectedSessionId === session.id
+                                                    ? "bg-blue-600 border-blue-500 shadow-lg shadow-blue-900/40"
+                                                    : isFull
+                                                        ? "bg-navy-950 border-white/5 opacity-50 cursor-not-allowed"
+                                                        : "bg-navy-800 border-white/5 hover:border-blue-500/50 hover:bg-navy-800/80"
+                                                    }`}
+                                            >
+                                                <div>
+                                                    <span className="font-medium block">{formattedDate}</span>
+                                                    <span className="text-xs opacity-70 block mt-1">{session.daySchedule}</span>
+                                                </div>
+
+                                                <div className="text-right">
+                                                    {isFull ? (
+                                                        <span className="inline-flex items-center gap-1 text-red-400 text-sm font-bold">
+                                                            <AlertTriangle size={14} /> Class Full
+                                                        </span>
+                                                    ) : (
+                                                        <span className={`text-sm font-medium ${selectedSessionId === session.id ? "text-blue-100" : "text-blue-400"}`}>
+                                                            {session.seatsRemaining} Seats Left
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+
+
+
+                            <div className="pt-6 border-t border-white/5">
+                                <Button
+                                    size="lg"
+                                    className="w-full"
+                                    disabled={!canProceed}
+                                    onClick={() => setShowPayment(true)}
+                                >
+                                    {isCapacityIssue ? "Capacity Exceeded" : "Proceed to Payment"} <ArrowRight size={20} className="ml-2" />
+                                </Button>
+                                <p className="text-center text-xs text-slate-500 mt-4">
+                                    {!isEligible && needsVerification
+                                        ? "Please verify your eligibility to continue."
+                                        : "You'll create an account in the next step."}
+                                </p>
+                            </div>
+                        </motion.div>
+                    ) : (
+                        <motion.div
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: 0.2 }}
+                            className="bg-navy-900 border border-white/10 rounded-3xl p-8 sticky top-32 shadow-2xl shadow-black/20"
+                        >
+                            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-400 mb-6">
+                                <Clock size={28} />
+                            </div>
+                            <h2 className="text-2xl font-bold mb-2">Not Yet Available</h2>
+                            <p className="text-slate-400 mb-8 leading-relaxed">
+                                This course is still in development and pending NY State accreditation. We aren't accepting enrollments yet. Check back soon, or reach out and we'll let you know the moment it opens.
+                            </p>
+                            <Link href="/contact">
+                                <Button size="lg" className="w-full">
+                                    Contact Us <ArrowRight size={20} className="ml-2" />
+                                </Button>
+                            </Link>
+                        </motion.div>
+                    )}
 
                 </div>
             </main>

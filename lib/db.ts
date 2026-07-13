@@ -8,7 +8,7 @@ import {
     getDoc,
     arrayUnion
 } from "firebase/firestore";
-import { COURSES, Course } from "@/lib/courses";
+import { COURSES, Course, mergeCoursesWithStatic } from "@/lib/courses";
 import { User } from "firebase/auth";
 
 // Collection References
@@ -62,7 +62,9 @@ const INITIAL_SESSIONS: ClassSession[] = [
     }
 ];
 
-// Fetch all courses (Fallback to static if DB is empty)
+// Fetch all courses, merged with the static defaults per-course-ID (see
+// mergeCoursesWithStatic in lib/courses.ts) so any course that hasn't been
+// seeded into Firestore yet still shows up alongside real, live courses.
 export async function getAllCourses(): Promise<Course[]> {
     try {
         const querySnapshot = await getDocs(collection(db, COURSES_COLLECTION));
@@ -71,12 +73,7 @@ export async function getAllCourses(): Promise<Course[]> {
             courses.push(doc.data() as Course);
         });
 
-        if (courses.length === 0) {
-            console.log("No courses found in DB. Returning static data.");
-            return COURSES;
-        }
-
-        return courses;
+        return mergeCoursesWithStatic(courses);
     } catch (error) {
         console.warn("Error fetching courses:", error);
         return COURSES; // Fallback

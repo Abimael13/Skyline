@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { COURSES, Course } from "@/lib/courses";
+import { COURSES, Course, isCourseEnrollable } from "@/lib/courses";
 import { useAuth } from "@/lib/AuthContext";
 import { Button } from "@/components/ui/Button";
 import { Clock, BookOpen, Check } from "lucide-react";
@@ -23,6 +23,7 @@ export default function CatalogPage() {
             <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
                 {COURSES.map((course, index) => {
                     const isEnrolled = enrolledCourses.includes(course.id);
+                    const enrollable = isCourseEnrollable(course);
 
                     return (
                         <motion.div
@@ -42,6 +43,12 @@ export default function CatalogPage() {
                                 />
                                 <div className="absolute inset-x-0 bottom-0 top-1/2 bg-gradient-to-t from-navy-950 to-transparent opacity-90" />
 
+                                {!enrollable && (
+                                    <div className="absolute top-4 left-4 z-10 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-900/60 border border-amber-500/40 text-amber-300 text-xs font-medium backdrop-blur-sm">
+                                        Coming Soon
+                                    </div>
+                                )}
+
                                 <div className="absolute bottom-4 left-4 right-4 z-10">
                                     <h3 className="text-xl font-bold text-white leading-tight drop-shadow-md">{course.title}</h3>
                                 </div>
@@ -55,20 +62,30 @@ export default function CatalogPage() {
                                 <div className="flex items-center gap-4 text-xs font-medium text-slate-500 mb-6">
                                     <div className="flex items-center gap-1.5 bg-slate-800/50 px-2.5 py-1 rounded-full">
                                         <Clock size={14} />
-                                        {course.duration}
+                                        {enrollable ? course.duration : "Duration TBD"}
                                     </div>
-                                    <div className="flex items-center gap-1.5 bg-slate-800/50 px-2.5 py-1 rounded-full">
-                                        <BookOpen size={14} />
-                                        Online + Live
-                                    </div>
+                                    {enrollable && (
+                                        <div className="flex items-center gap-1.5 bg-slate-800/50 px-2.5 py-1 rounded-full">
+                                            <BookOpen size={14} />
+                                            Online + Live
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="flex items-center justify-between mt-auto pt-4 border-t border-white/5">
                                     <div className="text-2xl font-bold text-white">
-                                        ${course.price}
+                                        {enrollable ? `$${course.price}` : (
+                                            <span className="text-base font-semibold text-slate-400">Pricing TBA</span>
+                                        )}
                                     </div>
 
-                                    {isEnrolled ? (
+                                    {!enrollable ? (
+                                        <Link href={`/courses/${course.id}`}>
+                                            <Button variant="outline">
+                                                Learn More
+                                            </Button>
+                                        </Link>
+                                    ) : isEnrolled ? (
                                         <Button disabled className="bg-green-600/20 text-green-400 cursor-default hover:bg-green-600/20 border border-green-500/50">
                                             <Check size={16} className="mr-2" />
                                             Enrolled

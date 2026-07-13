@@ -59,6 +59,23 @@ export interface Course {
         url: string;
         req_enrollment?: boolean; // If true, only show if enrolled
     }[];
+    // Whether this course can actually be enrolled in / purchased today.
+    // "active" (or omitted, see isCourseEnrollable below) = real, sellable
+    // course. "coming-soon" = shown to visitors so they can see where the
+    // business is headed, but has no real curriculum/accreditation yet and
+    // must never reach a live enrollment or payment flow.
+    status?: "active" | "coming-soon";
+}
+
+// Whether a course has a real, live enrollment flow today. Undefined
+// status is treated as enrollable ("active") for backward compatibility
+// with any course documents already seeded into Firestore before this
+// field existed - only an explicit "coming-soon" turns off enrollment.
+// This is the single source of truth checked everywhere enrollment is
+// gated: the course listing pages, the course detail page, and the
+// server-side checkout guard in app/api/checkout/route.ts.
+export function isCourseEnrollable(course: Course): boolean {
+    return course.status !== "coming-soon";
 }
 
 // Recursively checks whether a course actually has any real live-class
@@ -79,6 +96,35 @@ export function courseHasLiveClassContent(course: Course): boolean {
     return modulesContainLiveClass(course.modules);
 }
 
+// Merges live Firestore course data with the static COURSES defaults below,
+// keyed by course ID, instead of an all-or-nothing "use Firestore if
+// non-empty" approach. This is the shared helper used everywhere a full
+// course *listing* is shown (the homepage catalog preview, the main course
+// catalog page, and lib/db.ts's getAllCourses) so there's one place that
+// owns this merge logic rather than several ad hoc copies.
+//
+// Rules:
+// - A course ID that exists in Firestore always uses the Firestore version,
+//   so admin edits made through the admin course editor keep taking
+//   priority, exactly as before this fix.
+// - A course ID that only exists in the static COURSES array (e.g. a newly
+//   added course that hasn't been seeded into Firestore yet) is included
+//   as-is, so it appears on the site immediately without needing a manual
+//   "Seed Database" action.
+// - A course that only exists in Firestore (e.g. a brand new course created
+//   entirely through the admin "Add New Course" flow, with no static
+//   counterpart) is also included.
+export function mergeCoursesWithStatic(firestoreCourses: Course[]): Course[] {
+    const merged = new Map<string, Course>();
+    for (const course of COURSES) {
+        merged.set(course.id, course);
+    }
+    for (const course of firestoreCourses) {
+        merged.set(course.id, course);
+    }
+    return Array.from(merged.values());
+}
+
 // Helper to get "now" and "now + 2 hours" for demo purposes
 const now = new Date();
 
@@ -87,6 +133,7 @@ export const COURSES: Course[] = [
         id: "f89-flsd",
         title: "F-89: Fire and Life Safety Director",
         description: "The official 31-hour Initial Course required by FDNY. Includes comprehensive training on fire safety, emergency procedures, and active shooter protocols.",
+        status: "active",
         price: 600,
         duration: "31 Hours",
         schedule: "Mon-Fri, 9:00 AM - 4:00 PM EST",
@@ -1380,6 +1427,7 @@ Please download the following documents for your records and future study for th
         id: "fire-guard-prep",
         title: "Fire Guard Preparation (F-01, F-02, F-03, F-04, F-60)",
         description: "Comprehensive preparation for FDNY Fire Guard Certificates of Fitness. Access pre-built learning modules for F-01, F-02, F-03, F-04, and F-60 at your own pace.",
+        status: "active",
         price: 80,
         duration: "4 Hours (Self-Paced)",
         schedule: "On-Demand / Self-Paced",
@@ -1406,6 +1454,7 @@ Please download the following documents for your records and future study for th
         id: "n85-fire-component",
         title: "FLSD Fire Component (N-85)",
         description: "The 20-hour Fire Safety module of the FLSD course. Prepares candidates for the N-85 exam. Ideal for those who only need the Fire Component training.",
+        status: "active",
         price: 350,
         duration: "20 Hours",
         schedule: "Mon-Wed, 9:00 AM - 4:00 PM EST",
@@ -1430,6 +1479,7 @@ Please download the following documents for your records and future study for th
         id: "z89-non-fire-component",
         title: "FLSD Non-Fire/EAP Component (Z-89)",
         description: "The 11-hour Non-Fire & Life Safety module. Covers Active Shooter, Medical Emergencies, and EAP. Prepares candidates for the Z-89 exam.",
+        status: "active",
         price: 250,
         duration: "11 Hours",
         schedule: "Thu-Fri, 9:00 AM - 3:00 PM EST",
@@ -1449,5 +1499,26 @@ Please download the following documents for your records and future study for th
             { id: 1, title: "Non-Fire Emergencies", duration: "3h", status: "locked", type: "text" },
             { id: 2, title: "Medical Emergencies", duration: "3h", status: "locked", type: "text" },
         ]
+    },
+    {
+        // Phase 2 of the business roadmap (see what-we-sell.md): NY State
+        // security guard licensing, a separate regulatory track from the
+        // FDNY Certificates of Fitness above (F-89, N-85, Z-89, F-01 to
+        // F-60 are all FDNY programs; this is NY State DCJS security guard
+        // licensing). Not accredited, no curriculum built yet, and not for
+        // sale - status: "coming-soon" keeps it out of every real
+        // enrollment/payment flow (see isCourseEnrollable above) while
+        // still letting visitors see it on the roadmap.
+        id: "ny-security-guard-license",
+        title: "NY State Security Guard License Training",
+        description: "Our upcoming security guard licensing program: the 8-hour pre-assignment training course plus the required 16-hour on-the-job training for NY State security guard licensure. This course is still in development and pending NY State accreditation, so it isn't open for enrollment yet. Check back soon, or contact us to be notified when it launches.",
+        status: "coming-soon",
+        price: 0,
+        duration: "TBD",
+        schedule: "To be announced",
+        upcomingDates: [],
+        zoomLink: "",
+        format: "Online",
+        modules: []
     }
 ];
