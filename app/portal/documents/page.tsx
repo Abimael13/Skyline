@@ -56,7 +56,7 @@ export default function DocumentsPage() {
 
     // 1. Gather all available documents from enrolled courses
     const courseDocuments = COURSES.flatMap(course => {
-        const isEnrolled = enrolledCourses.includes(course.id) || (user?.email?.includes("andy.herrera") && course.id === "f89-flsd");
+        const isEnrolled = enrolledCourses.includes(course.id);
 
         if (!isEnrolled || !course.documents) return [];
 

@@ -146,7 +146,8 @@ export async function POST(req: Request) {
             )
             .catch((err) => {
                 // Non-fatal: the session doc may not exist in edge cases
-                // (e.g. dev resets). The exam result itself is already saved.
+                // (e.g. it was never created, or was already cleaned up).
+                // The exam result itself is already saved.
                 console.error("Failed to close exam session:", err);
             });
 

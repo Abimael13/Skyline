@@ -15,7 +15,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 export default function MyCoursesPage() {
-    const { enrolledCourses, loading: authLoading, user } = useAuth();
+    const { enrolledCourses, loading: authLoading } = useAuth();
     const searchParams = useSearchParams();
     const expandId = searchParams.get('expand');
 
@@ -28,12 +28,6 @@ export default function MyCoursesPage() {
 
             // 1. Identify which courses to fetch
             const courseIdsToFetch = new Set<string>(enrolledCourses);
-
-            // Demo Logic: If user is "Andy.herrera3190", auto-show F-89
-            const isDemoUser = user?.email?.toLowerCase().includes("andy.herrera");
-            if (isDemoUser) {
-                courseIdsToFetch.add("f89-flsd");
-            }
 
             if (courseIdsToFetch.size === 0) {
                 setMyCourses([]);
@@ -55,7 +49,7 @@ export default function MyCoursesPage() {
         };
 
         fetchCourses();
-    }, [enrolledCourses, authLoading, user]);
+    }, [enrolledCourses, authLoading]);
 
 
     if (authLoading || loadingCourses) {

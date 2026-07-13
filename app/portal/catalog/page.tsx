@@ -10,7 +10,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 export default function CatalogPage() {
-    const { enrolledCourses, user } = useAuth();
+    const { enrolledCourses } = useAuth();
     // Removed local payment state since we are redirecting to public course page
 
     return (
@@ -22,8 +22,7 @@ export default function CatalogPage() {
 
             <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
                 {COURSES.map((course, index) => {
-                    const isDemoUser = user?.email?.includes("andy.herrera");
-                    const isEnrolled = enrolledCourses.includes(course.id) || (isDemoUser && course.id === "f89-flsd");
+                    const isEnrolled = enrolledCourses.includes(course.id);
 
                     return (
                         <motion.div

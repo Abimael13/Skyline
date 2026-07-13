@@ -26,19 +26,33 @@ export default function Dashboard() {
     const totalModules = activeCourse ? activeCourse.modules.reduce((acc, m) => acc + (m.subModules?.length || 0), 0) : 0;
     const progressPercent = totalModules > 0 ? Math.round((activeProgress.length / totalModules) * 100) : 0;
 
+    // Real study manual for the active course, if one has been uploaded
+    // (currently only F-89 has a documents[] entry). Used to power the
+    // "Download FDNY FLSD Manual" checklist item below instead of a dead
+    // link - if there's no manual for this course yet, the item is shown
+    // as "Coming soon" rather than a clickable link that goes nowhere.
+    const manualDoc = activeCourse?.documents?.[0];
+
+    const checklistItems: {
+        id: number;
+        label: string;
+        action: string;
+        href?: string;
+        external?: boolean;
+    }[] = [
+        { id: 1, label: "Download FDNY FLSD Manual", action: "Download", href: manualDoc?.url, external: true },
+        { id: 2, label: "Download CBT Success Guide", action: "Coming Soon" },
+        { id: 3, label: "Watch Welcome Video", action: "Coming Soon" },
+        { id: 4, label: "Complete Module 1: Fire Basics", action: "Start", href: "/portal/learning/class-1" },
+    ];
+
     useEffect(() => {
         const fetchCourses = async () => {
             if (authLoading) return;
 
             const fetched: Course[] = [];
 
-            // Demo Logic: If user is "Andy.herrera3190", auto-show F-89
-            // This mirrors the logic in My Courses page for consistency
             const coursesToFetch = new Set(enrolledCourses);
-            const isDemoUser = user?.email?.toLowerCase().includes("andy.herrera");
-            if (isDemoUser) {
-                coursesToFetch.add("f89-flsd");
-            }
 
             for (const id of Array.from(coursesToFetch)) {
                 const course = await getCourseById(id);
@@ -110,23 +124,33 @@ export default function Dashboard() {
                         </div>
 
                         <div className="grid md:grid-cols-2 gap-4">
-                            {[
-                                { id: 1, label: "Download FDNY FLSD Manual", action: "Download", link: "#" },
-                                { id: 2, label: "Download CBT Success Guide", action: "Download", link: "#" },
-                                { id: 3, label: "Watch Welcome Video", action: "Watch", link: "#" },
-                                { id: 4, label: "Complete Module 1: Fire Basics", action: "Start", link: "/portal/learning/class-1" }
-                            ].map((item) => (
+                            {checklistItems.map((item) => (
                                 <div key={item.id} className="flex items-center justify-between bg-navy-950/50 border border-white/5 p-4 rounded-xl group hover:border-blue-500/30 transition-all">
                                     <div className="flex items-center gap-3">
                                         <div className="w-5 h-5 rounded-full border-2 border-slate-600 group-hover:border-blue-500 transition-colors" />
                                         <span className="text-slate-300 text-sm font-medium">{item.label}</span>
                                     </div>
-                                    <Link
-                                        href={item.link}
-                                        className="text-xs font-bold text-blue-400 hover:text-blue-300 uppercase tracking-wider"
-                                    >
-                                        {item.action}
-                                    </Link>
+                                    {!item.href ? (
+                                        <span className="text-xs font-bold text-slate-600 uppercase tracking-wider cursor-not-allowed">
+                                            {item.action}
+                                        </span>
+                                    ) : item.external ? (
+                                        <a
+                                            href={item.href}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-xs font-bold text-blue-400 hover:text-blue-300 uppercase tracking-wider"
+                                        >
+                                            {item.action}
+                                        </a>
+                                    ) : (
+                                        <Link
+                                            href={item.href}
+                                            className="text-xs font-bold text-blue-400 hover:text-blue-300 uppercase tracking-wider"
+                                        >
+                                            {item.action}
+                                        </Link>
+                                    )}
                                 </div>
                             ))}
                         </div>

@@ -6,7 +6,7 @@ import { Loader2, ShieldCheck, AlertTriangle, CheckCircle, Video, ArrowRight, Sa
 import { Button } from "@/components/ui/Button";
 import { COURSES } from "@/lib/courses";
 import { useAuth } from "@/lib/AuthContext";
-import { doc, setDoc, updateDoc, serverTimestamp, onSnapshot, increment, deleteDoc, addDoc, collection } from "firebase/firestore";
+import { doc, setDoc, updateDoc, serverTimestamp, onSnapshot, increment, addDoc, collection } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import { LiveKitRoom, RoomAudioRenderer, useLocalParticipant, VideoTrack, useTracks } from "@livekit/components-react";
@@ -320,19 +320,6 @@ export function ExamPortal() {
                     </p>
                     <Button onClick={() => router.push("/portal/dashboard")} className="w-full">
                         Return to Dashboard
-                    </Button>
-                    <Button
-                        variant="outline"
-                        onClick={async () => {
-                            if (!sessionIdRef.current) return;
-                            await deleteDoc(doc(db, "exam_sessions", sessionIdRef.current));
-                            setSubmitted(false);
-                            setConnectionState("idle");
-                            router.refresh();
-                        }}
-                        className="w-full mt-4 border-red-500/30 text-red-400 hover:bg-red-500/10"
-                    >
-                        [DEV] Reset Exam
                     </Button>
                 </div>
             </div>

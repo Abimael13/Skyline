@@ -7,13 +7,9 @@ import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 
 export default function CalendarPage() {
-    const { enrolledCourses, user, loading } = useAuth();
+    const { enrolledCourses, loading } = useAuth();
 
-    // Demo logic: if user is 'andy.herrera', show F-89
-    const isDemoUser = user?.email?.includes("andy.herrera");
-    const myCourses = COURSES.filter(course =>
-        enrolledCourses.includes(course.id) || (isDemoUser && course.id === "f89-flsd")
-    );
+    const myCourses = COURSES.filter(course => enrolledCourses.includes(course.id));
 
     const allDates = myCourses.flatMap(course =>
         course.upcomingDates.map(date => ({
